@@ -15,6 +15,7 @@ function App() {
   const [story, setStory] = useState('')
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [savedStories, setSavedStories] = useState([])
   const [suggestions, setSuggestions] = useState({
     genres: [],
@@ -22,11 +23,22 @@ function App() {
     opening_lines: []
   })
 
-  // Fetch suggestions on mount
+  // Fetch suggestions from AI
+  const loadSuggestions = async () => {
+    setLoadingSuggestions(true)
+    try {
+      const response = await axios.get(`${API_URL}/suggestions`)
+      setSuggestions(response.data)
+    } catch (error) {
+      console.error('Error fetching suggestions:', error)
+    } finally {
+      setLoadingSuggestions(false)
+    }
+  }
+
+  // Load suggestions on mount
   useState(() => {
-    axios.get(`${API_URL}/suggestions`)
-      .then(response => setSuggestions(response.data))
-      .catch(error => console.error('Error fetching suggestions:', error))
+    loadSuggestions()
   }, [])
 
   // Fetch saved stories when switching to saved view
@@ -160,6 +172,8 @@ function App() {
     setOpeningLine('')
     setStory('')
     setOptions([])
+    // Reload suggestions for a fresh start
+    loadSuggestions()
   }
 
   const switchToSavedView = () => {
@@ -176,7 +190,7 @@ function App() {
     <div className="App">
       <header className="header">
         <h1>📖 AI Story Generator</h1>
-        <p className="subtitle">Create your own interactive story with AI</p>
+        <p className="subtitle">Create your own interactive story with MistralAI</p>
         <div className="nav-buttons">
           <button 
             onClick={() => { setView('new'); resetStory(); }} 
@@ -245,6 +259,18 @@ function App() {
 
       {view === 'new' && stage === 'input' && (
         <div className="input-container">
+          <div className="suggestions-header">
+            <h3>✨ Get Inspired</h3>
+            <button 
+              onClick={loadSuggestions} 
+              disabled={loadingSuggestions}
+              className="refresh-suggestions-button"
+              title="Generate new suggestions"
+            >
+              {loadingSuggestions ? '🔄 Generating...' : '🔄 New Suggestions'}
+            </button>
+          </div>
+
           <div className="form-section">
             <label htmlFor="genre">Genre *</label>
             <input

@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import json
+import re
 from dotenv import load_dotenv
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
@@ -105,12 +107,57 @@ def read_root():
     return {"message": "AI Story Generator API is running"}
 
 @app.get("/suggestions")
-def get_suggestions():
-    return {
-        "genres": GENRE_SUGGESTIONS,
-        "characters": CHARACTER_SUGGESTIONS,
-        "opening_lines": OPENING_LINE_SUGGESTIONS
-    }
+async def get_suggestions():
+    """Generate dynamic suggestions using MistralAI"""
+    try:
+        prompt = """Generate creative and diverse suggestions for starting a story. Return ONLY a valid JSON object with exactly this structure, no other text:
+
+{
+  "genres": ["genre1", "genre2", "genre3", "genre4", "genre5", "genre6"],
+  "characters": ["character1", "character2", "character3", "character4", "character5", "character6"],
+  "opening_lines": ["line1", "line2", "line3", "line4", "line5", "line6"]
+}
+
+Requirements:
+- 6 unique, creative genres (e.g., "Cyberpunk Mystery", "Victorian Horror", "Space Opera")
+- 6 character pairs/groups (e.g., "A rebel pilot and a rogue AI", "A vampire chef and a werewolf food critic")
+- 6 intriguing opening lines (each 10-20 words, hooks the reader immediately)
+
+Make them diverse, creative, and different from common examples. Return ONLY the JSON, nothing else."""
+
+        messages = [ChatMessage(role="user", content=prompt)]
+        
+        response = mistral_client.chat(
+            model="mistral-small-latest",
+            messages=messages,
+            temperature=0.9,  # Higher temperature for more creativity
+            max_tokens=800
+        )
+        
+        suggestions_text = response.choices[0].message.content.strip()
+        
+        # Try to extract JSON from the response
+        # Try to find JSON in the response
+        json_match = re.search(r'\{.*\}', suggestions_text, re.DOTALL)
+        if json_match:
+            suggestions_json = json.loads(json_match.group())
+        else:
+            suggestions_json = json.loads(suggestions_text)
+        
+        # Validate the structure
+        if not all(key in suggestions_json for key in ["genres", "characters", "opening_lines"]):
+            raise ValueError("Invalid suggestions structure")
+        
+        return suggestions_json
+        
+    except Exception as e:
+        print(f"Error generating suggestions: {e}")
+        # Fallback to static suggestions if AI generation fails
+        return {
+            "genres": GENRE_SUGGESTIONS,
+            "characters": CHARACTER_SUGGESTIONS,
+            "opening_lines": OPENING_LINE_SUGGESTIONS
+        }
 
 @app.get("/stories", response_model=List[StorySummary])
 async def list_stories():
