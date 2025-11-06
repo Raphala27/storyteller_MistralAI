@@ -5,12 +5,9 @@ An interactive storytelling application powered by MistralAI that generates crea
 ## ✨ Features
 
 - **Interactive Story Generation**: Start with a genre, characters, or opening line
-- **Branching Narratives**: Choose from 3 different options at each step to guide your story
 - **AI-Powered**: Uses MistralAI's language model for creative story generation
 - **Dynamic Suggestions**: AI-generated suggestions for genres, characters, and opening lines that change with each session
 - **Story Persistence**: Save, load, continue, and delete your stories
-- **Markdown Formatting**: Stories support **bold**, *italic*, and other markdown formatting for enhanced readability
-- **Modern UI**: Beautiful, responsive interface built with React
 - **Complete Stories**: Generate satisfying conclusions on demand
 
 ## 🛠️ Tech Stack
@@ -18,14 +15,12 @@ An interactive storytelling application powered by MistralAI that generates crea
 ### Backend
 - **FastAPI**: Modern Python web framework
 - **MistralAI SDK**: AI model integration for story generation
-- **Python 3.8+**: Programming language
+- **Python 3.13**: Programming language
 
 ### Frontend
 - **React**: UI library
 - **Vite**: Build tool and development server
 - **Axios**: HTTP client for API calls
-- **React Markdown**: Markdown rendering support
-- **Modern CSS**: Responsive design with animations
 
 ## 📋 Prerequisites
 
@@ -34,7 +29,7 @@ An interactive storytelling application powered by MistralAI that generates crea
 - npm or yarn
 - MistralAI API key (get one at [https://console.mistral.ai/](https://console.mistral.ai/))
 
-## 🚀 Installation
+## Installation
 
 ### 1. Clone the Repository
 
@@ -74,7 +69,7 @@ cd ../frontend
 npm install
 ```
 
-## 🎮 Running the Application
+## Running the Application
 
 ### Start the Backend Server
 
@@ -129,7 +124,7 @@ Open your browser and navigate to `http://localhost:5173` to use the application
 - `GET /stories/{id}` - Get a specific story by ID
 - `DELETE /stories/{id}` - Delete a story
 
-## 🎨 Customization
+## Customization
 
 ### Modifying Story Length
 
@@ -150,43 +145,6 @@ Replace `"mistral-small-latest"` with other Mistral models like:
 - `"mistral-medium-latest"`
 - `"mistral-large-latest"`
 
-### Customizing Suggestions
-
-Edit the suggestion arrays in `backend/main.py`:
-
-```python
-GENRE_SUGGESTIONS = [...]
-CHARACTER_SUGGESTIONS = [...]
-OPENING_LINE_SUGGESTIONS = [...]
-```
-
-### Styling
-
-Modify `frontend/src/App.css` to change colors, layouts, and animations.
-
-## 🐛 Troubleshooting
-
-### Backend Issues
-
-- **"MISTRAL_API_KEY not found"**: Ensure your `.env` file exists and contains a valid API key
-- **Import errors**: Verify all packages are installed with `pip install -r requirements.txt`
-- **CORS errors**: Check that the frontend URL is listed in the CORS middleware configuration
-
-### Frontend Issues
-
-- **Can't connect to backend**: Ensure the backend is running on port 8000
-- **Dependencies not found**: Run `npm install` in the frontend directory
-
 ## 📝 License
 
 MIT License
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 🙏 Acknowledgments
-
-- [MistralAI](https://mistral.ai/) for the powerful language model
-- [FastAPI](https://fastapi.tiangolo.com/) for the excellent web framework
-- [React](https://react.dev/) and [Vite](https://vitejs.dev/) for the frontend tools
