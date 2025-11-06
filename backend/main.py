@@ -98,7 +98,12 @@ Genre: {story_start.genre}
         if story_start.opening_line:
             prompt += f"Opening line: {story_start.opening_line}\n"
         
-        prompt += """\nWrite a compelling opening paragraph (3-4 sentences maximum) that sets the scene and hooks the reader.
+        prompt += """\nWrite a compelling opening paragraph (5-7 sentences) that sets the scene and hooks the reader. Build atmosphere and introduce key elements naturally.
+You can use markdown formatting to emphasize parts of the story:
+- Use **bold** for emphasis or important elements
+- Use *italics* for thoughts or special terms
+- Keep it readable and don't overuse formatting
+
 Then suggest exactly 3 different ways the story could continue next. Format your response as:
 
 STORY:
@@ -117,7 +122,7 @@ OPTIONS:
             model="mistral-small-latest",
             messages=messages,
             temperature=0.8,
-            max_tokens=400
+            max_tokens=600
         )
 
         content = response.choices[0].message.content
@@ -144,7 +149,12 @@ async def continue_story(continuation: StoryContinuation):
 
 The reader chose: {continuation.chosen_option}
 
-Write the next part of the story (3-4 sentences maximum) based on this choice.
+Write the next part of the story (5-7 sentences) based on this choice. Develop the scene with detail and advance the plot meaningfully.
+You can use markdown formatting to emphasize parts of the story:
+- Use **bold** for emphasis or important elements
+- Use *italics* for thoughts or special terms
+- Keep it readable and don't overuse formatting
+
 Then suggest exactly 3 different ways the story could continue next.
 
 Format your response as:
@@ -165,7 +175,7 @@ OPTIONS:
             model="mistral-small-latest",
             messages=messages,
             temperature=0.8,
-            max_tokens=400
+            max_tokens=600
         )
 
         content = response.choices[0].message.content
@@ -190,7 +200,11 @@ async def end_story(story_end: StoryEnd):
 
 {story_end.story_so_far}
 
-Write a satisfying conclusion to this story in 4-5 sentences. Make it meaningful and bring closure to the narrative.
+Write a satisfying conclusion to this story in 6-8 sentences. Make it meaningful, bring closure to the narrative, and leave a lasting impression.
+You can use markdown formatting to emphasize parts of the story:
+- Use **bold** for emphasis or important elements
+- Use *italics* for thoughts or special terms
+- Keep it readable and don't overuse formatting
 
 Format your response as:
 
@@ -205,7 +219,7 @@ STORY:
             model="mistral-small-latest",
             messages=messages,
             temperature=0.7,
-            max_tokens=300
+            max_tokens=500
         )
 
         content = response.choices[0].message.content
