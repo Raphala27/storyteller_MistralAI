@@ -2,6 +2,7 @@ import { useState } from 'react'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import './App.css'
+import mistralLogo from './assets/mistral-rainbow-white.png'
 
 const API_URL = 'http://localhost:8000'
 
@@ -189,8 +190,11 @@ function App() {
   return (
     <div className="App">
       <header className="header">
-        <h1>📖 AI Story Generator</h1>
-        <p className="subtitle">Create your own interactive story with MistralAI</p>
+        <h1>AI Story Generator</h1>
+        <div className="subtitle-container">
+          <p className="subtitle">Create your own interactive story with</p>
+          <img src={mistralLogo} alt="Mistral AI" className="mistral-logo" />
+        </div>
         <div className="nav-buttons">
           <button 
             onClick={() => { setView('new'); resetStory(); }} 

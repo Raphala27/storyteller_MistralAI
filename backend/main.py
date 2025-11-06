@@ -131,7 +131,7 @@ Make them diverse, creative, and different from common examples. Return ONLY the
             model="mistral-small-latest",
             messages=messages,
             temperature=0.9,  # Higher temperature for more creativity
-            max_tokens=800
+            max_tokens=600
         )
         
         suggestions_text = response.choices[0].message.content.strip()
