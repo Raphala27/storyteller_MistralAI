@@ -51,7 +51,7 @@ class StoryStorage:
                         
                         # Extract metadata
                         stories.append({
-                            'id': story_data.get('id'),
+                            'story_id': story_data.get('id'),
                             'title': story_data.get('title', 'Untitled Story'),
                             'genre': story_data.get('genre', 'Unknown'),
                             'is_complete': story_data.get('is_complete', False),

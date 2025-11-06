@@ -55,7 +55,7 @@ class StoryResponse(BaseModel):
     story_id: Optional[str] = None  # Return story ID for frontend
 
 class StorySummary(BaseModel):
-    id: str
+    story_id: str
     title: str
     genre: str
     is_complete: bool
