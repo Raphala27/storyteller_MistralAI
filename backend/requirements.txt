@@ -4,3 +4,4 @@ mistralai==0.4.2
 pydantic>=2.5.2
 python-dotenv==1.0.0
 python-multipart==0.0.6
+gunicorn==22.0.0
