@@ -7,8 +7,9 @@ An interactive storytelling application powered by MistralAI that generates crea
 - **Interactive Story Generation**: Start with a genre, characters, or opening line
 - **Branching Narratives**: Choose from 3 different options at each step to guide your story
 - **AI-Powered**: Uses MistralAI's language model for creative story generation
+- **Dynamic Suggestions**: AI-generated suggestions for genres, characters, and opening lines that change with each session
+- **Story Persistence**: Save, load, continue, and delete your stories
 - **Markdown Formatting**: Stories support **bold**, *italic*, and other markdown formatting for enhanced readability
-- **Preset Suggestions**: Quick-start options for genres, characters, and opening lines
 - **Modern UI**: Beautiful, responsive interface built with React
 - **Complete Stories**: Generate satisfying conclusions on demand
 
@@ -120,10 +121,13 @@ Open your browser and navigate to `http://localhost:5173` to use the application
 ## 🎯 API Endpoints
 
 - `GET /` - Health check
-- `GET /suggestions` - Get preset suggestions for genres, characters, and opening lines
-- `POST /start-story` - Start a new story
+- `GET /suggestions` - Get AI-generated suggestions for genres, characters, and opening lines (dynamic)
+- `POST /start-story` - Start a new story (automatically saved)
 - `POST /continue-story` - Continue an existing story
 - `POST /end-story` - Generate an ending for the story
+- `GET /stories` - List all saved stories
+- `GET /stories/{id}` - Get a specific story by ID
+- `DELETE /stories/{id}` - Delete a story
 
 ## 🎨 Customization
 

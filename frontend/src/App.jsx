@@ -2,29 +2,104 @@ import { useState } from 'react'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import './App.css'
+import mistralLogo from './assets/mistral-rainbow-white.png'
 
 const API_URL = 'http://localhost:8000'
 
 function App() {
+  const [view, setView] = useState('new') // new, saved
   const [stage, setStage] = useState('input') // input, story, ended
+  const [storyId, setStoryId] = useState(null)
   const [genre, setGenre] = useState('')
   const [characters, setCharacters] = useState('')
   const [openingLine, setOpeningLine] = useState('')
   const [story, setStory] = useState('')
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const [savedStories, setSavedStories] = useState([])
   const [suggestions, setSuggestions] = useState({
     genres: [],
     characters: [],
     opening_lines: []
   })
 
-  // Fetch suggestions on mount
+  // Fetch suggestions from AI
+  const loadSuggestions = async () => {
+    setLoadingSuggestions(true)
+    try {
+      const response = await axios.get(`${API_URL}/suggestions`)
+      setSuggestions(response.data)
+    } catch (error) {
+      console.error('Error fetching suggestions:', error)
+    } finally {
+      setLoadingSuggestions(false)
+    }
+  }
+
+  // Load suggestions on mount
   useState(() => {
-    axios.get(`${API_URL}/suggestions`)
-      .then(response => setSuggestions(response.data))
-      .catch(error => console.error('Error fetching suggestions:', error))
+    loadSuggestions()
   }, [])
+
+  // Fetch saved stories when switching to saved view
+  const loadSavedStories = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/stories`)
+      setSavedStories(response.data)
+    } catch (error) {
+      console.error('Error loading saved stories:', error)
+    }
+  }
+
+  // Load a saved story
+  const loadStory = async (id) => {
+    setLoading(true)
+    try {
+      const response = await axios.get(`${API_URL}/stories/${id}`)
+      const storyData = response.data
+      
+      setStoryId(id)
+      setGenre(storyData.genre)
+      
+      // Reconstruct full story from segments
+      const fullStory = storyData.segments.map(seg => seg.text).join('\n\n')
+      setStory(fullStory)
+      
+      // If story is complete, go to ended stage
+      if (storyData.is_complete) {
+        setOptions([])
+        setStage('ended')
+      } else {
+        // Get options from last segment
+        const lastSegment = storyData.segments[storyData.segments.length - 1]
+        setOptions(lastSegment.options || [])
+        setStage('story')
+      }
+      
+      setView('new')
+    } catch (error) {
+      console.error('Error loading story:', error)
+      alert('Error loading story. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Delete a saved story
+  const deleteStory = async (id) => {
+    if (!confirm('Are you sure you want to delete this story?')) {
+      return
+    }
+    
+    try {
+      await axios.delete(`${API_URL}/stories/${id}`)
+      loadSavedStories()
+    } catch (error) {
+      console.error('Error deleting story:', error)
+      alert('Error deleting story. Please try again.')
+    }
+  }
 
   const startStory = async () => {
     if (!genre.trim()) {
@@ -40,6 +115,7 @@ function App() {
         opening_line: openingLine || null
       })
 
+      setStoryId(response.data.story_id)
       setStory(response.data.story_text)
       setOptions(response.data.options)
       setStage('story')
@@ -55,6 +131,7 @@ function App() {
     setLoading(true)
     try {
       const response = await axios.post(`${API_URL}/continue-story`, {
+        story_id: storyId,
         story_so_far: story,
         chosen_option: chosenOption
       })
@@ -73,6 +150,7 @@ function App() {
     setLoading(true)
     try {
       const response = await axios.post(`${API_URL}/end-story`, {
+        story_id: storyId,
         story_so_far: story
       })
 
@@ -89,22 +167,114 @@ function App() {
 
   const resetStory = () => {
     setStage('input')
+    setStoryId(null)
     setGenre('')
     setCharacters('')
     setOpeningLine('')
     setStory('')
     setOptions([])
+    // Reload suggestions for a fresh start
+    loadSuggestions()
+  }
+
+  const switchToSavedView = () => {
+    setView('saved')
+    loadSavedStories()
+  }
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
   }
 
   return (
     <div className="App">
       <header className="header">
-        <h1>📖 AI Story Generator</h1>
-        <p className="subtitle">Create your own interactive story with AI</p>
+        <h1>AI Story Generator</h1>
+        <div className="subtitle-container">
+          <p className="subtitle">Create your own interactive story with</p>
+          <img src={mistralLogo} alt="Mistral AI" className="mistral-logo" />
+        </div>
+        <div className="nav-buttons">
+          <button 
+            onClick={() => { setView('new'); resetStory(); }} 
+            className={`nav-button ${view === 'new' ? 'active' : ''}`}
+          >
+            ✨ New Story
+          </button>
+          <button 
+            onClick={switchToSavedView} 
+            className={`nav-button ${view === 'saved' ? 'active' : ''}`}
+          >
+            📚 My Stories
+          </button>
+        </div>
       </header>
 
-      {stage === 'input' && (
+      {view === 'saved' && (
+        <div className="saved-stories-container">
+          <h2>Your Saved Stories</h2>
+          {savedStories.length === 0 ? (
+            <div className="empty-state">
+              <p>No saved stories yet. Create your first story!</p>
+              <button onClick={() => setView('new')} className="primary-button">
+                ✨ Start Writing
+              </button>
+            </div>
+          ) : (
+            <div className="stories-grid">
+              {savedStories.map((storyItem) => (
+                <div key={storyItem.story_id} className="story-card">
+                  <div className="story-card-header">
+                    <h3>{storyItem.title}</h3>
+                    <span className={`status-badge ${storyItem.is_complete ? 'complete' : 'incomplete'}`}>
+                      {storyItem.is_complete ? '✓ Complete' : '📝 In Progress'}
+                    </span>
+                  </div>
+                  <div className="story-card-body">
+                    <p className="story-genre">Genre: {storyItem.genre}</p>
+                    <p className="story-meta">
+                      {storyItem.segment_count} segment{storyItem.segment_count !== 1 ? 's' : ''}
+                    </p>
+                    <p className="story-date">
+                      Last updated: {formatDate(storyItem.updated_at)}
+                    </p>
+                  </div>
+                  <div className="story-card-actions">
+                    <button 
+                      onClick={() => loadStory(storyItem.story_id)} 
+                      className="load-button"
+                    >
+                      {storyItem.is_complete ? '👁️ Read' : '▶️ Continue'}
+                    </button>
+                    <button 
+                      onClick={() => deleteStory(storyItem.story_id)} 
+                      className="delete-button"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === 'new' && stage === 'input' && (
         <div className="input-container">
+          <div className="suggestions-header">
+            <h3>✨ Get Inspired</h3>
+            <button 
+              onClick={loadSuggestions} 
+              disabled={loadingSuggestions}
+              className="refresh-suggestions-button"
+              title="Generate new suggestions"
+            >
+              {loadingSuggestions ? '🔄 Generating...' : '🔄 New Suggestions'}
+            </button>
+          </div>
+
           <div className="form-section">
             <label htmlFor="genre">Genre *</label>
             <input
@@ -184,7 +354,7 @@ function App() {
         </div>
       )}
 
-      {stage === 'story' && (
+      {view === 'new' && stage === 'story' && (
         <div className="story-container">
           <div className="story-text">
             {story.split('\n\n').map((paragraph, index) => (
@@ -226,7 +396,7 @@ function App() {
         </div>
       )}
 
-      {stage === 'ended' && (
+      {view === 'new' && stage === 'ended' && (
         <div className="story-container">
           <div className="story-text">
             {story.split('\n\n').map((paragraph, index) => (
