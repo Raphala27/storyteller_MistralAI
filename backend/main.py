@@ -6,6 +6,9 @@ import os
 from dotenv import load_dotenv
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
+from datetime import datetime
+import uuid
+from storage import storage
 
 load_dotenv()
 
@@ -32,18 +35,42 @@ class StoryStart(BaseModel):
     genre: str
     characters: Optional[str] = None
     opening_line: Optional[str] = None
+    story_id: Optional[str] = None  # Optional ID to continue existing story
 
 class StoryContinuation(BaseModel):
     story_so_far: str
     chosen_option: str
+    story_id: Optional[str] = None  # Story ID for saving
 
 class StoryEnd(BaseModel):
     story_so_far: str
+    story_id: Optional[str] = None  # Story ID for saving
 
 class StoryResponse(BaseModel):
     story_text: str
     options: List[str]
     is_complete: bool = False
+    story_id: Optional[str] = None  # Return story ID for frontend
+
+class StorySummary(BaseModel):
+    id: str
+    title: str
+    genre: str
+    is_complete: bool
+    created_at: str
+    updated_at: str
+    segment_count: int
+
+class StoryDetail(BaseModel):
+    id: str
+    title: str
+    genre: str
+    characters: Optional[str]
+    opening_line: Optional[str]
+    segments: List[dict]
+    is_complete: bool
+    created_at: str
+    updated_at: str
 
 # Starter suggestions
 GENRE_SUGGESTIONS = [
@@ -85,6 +112,32 @@ def get_suggestions():
         "opening_lines": OPENING_LINE_SUGGESTIONS
     }
 
+@app.get("/stories", response_model=List[StorySummary])
+async def list_stories():
+    """Get list of all saved stories"""
+    stories = storage.list_stories()
+    return stories
+
+@app.get("/stories/{story_id}", response_model=StoryDetail)
+async def get_story(story_id: str):
+    """Get a specific story by ID"""
+    story = storage.load_story(story_id)
+    
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    return story
+
+@app.delete("/stories/{story_id}")
+async def delete_story(story_id: str):
+    """Delete a story"""
+    success = storage.delete_story(story_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    return {"message": "Story deleted successfully"}
+
 @app.post("/start-story", response_model=StoryResponse)
 async def start_story(story_start: StoryStart):
     """Start a new story based on user inputs"""
@@ -98,21 +151,26 @@ Genre: {story_start.genre}
         if story_start.opening_line:
             prompt += f"Opening line: {story_start.opening_line}\n"
         
-        prompt += """\nWrite a compelling opening paragraph (5-7 sentences) that sets the scene and hooks the reader. Build atmosphere and introduce key elements naturally.
+        prompt += """\nWrite a compelling opening paragraph (10-15 sentences) that sets the scene and hooks the reader. Build atmosphere, introduce key elements naturally, and create vivid imagery.
+
+IMPORTANT: The story paragraph MUST be at least 10-15 complete sentences. Write a full, detailed, immersive opening that develops the scene thoroughly. Do NOT write just 2-3 short paragraphs - expand the story with rich details, character thoughts, atmospheric descriptions, and plot development.
+
 You can use markdown formatting to emphasize parts of the story:
 - Use **bold** for emphasis or important elements
 - Use *italics* for thoughts or special terms
 - Keep it readable and don't overuse formatting
 
-Then suggest exactly 3 different ways the story could continue next. Format your response as:
+Then suggest exactly 3 different ways the story could continue next. Keep each option SHORT (5-7 words max) - just a brief guideline.
+
+Format your response as:
 
 STORY:
-[Your opening paragraph here]
+[Your opening paragraph here - MUST be detailed and immersive, at least 10-15 complete sentences with rich development]
 
 OPTIONS:
-1. [First possible continuation]
-2. [Second possible continuation]
-3. [Third possible continuation]"""
+1. [Short option - 5-7 words]
+2. [Short option - 5-7 words]
+3. [Short option - 5-7 words]"""
 
         messages = [
             ChatMessage(role="user", content=prompt)
@@ -122,7 +180,7 @@ OPTIONS:
             model="mistral-small-latest",
             messages=messages,
             temperature=0.8,
-            max_tokens=600
+            max_tokens=2000
         )
 
         content = response.choices[0].message.content
@@ -130,10 +188,40 @@ OPTIONS:
         # Parse the response
         story_text, options = parse_story_response(content)
         
+        # Generate story ID and save
+        story_id = story_start.story_id or str(uuid.uuid4())
+        
+        # Generate title from genre and first few words
+        title_words = story_text.split()[:5]
+        title = ' '.join(title_words) + '...' if len(title_words) == 5 else story_text[:50] + '...'
+        
+        # Create story data
+        story_data = {
+            'id': story_id,
+            'title': title,
+            'genre': story_start.genre,
+            'characters': story_start.characters,
+            'opening_line': story_start.opening_line,
+            'segments': [
+                {
+                    'text': story_text,
+                    'options': options,
+                    'chosen_option': None,
+                    'timestamp': datetime.now().isoformat()
+                }
+            ],
+            'is_complete': False,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        # Save story
+        storage.save_story(story_id, story_data)
+        
         return StoryResponse(
             story_text=story_text,
             options=options,
-            is_complete=False
+            is_complete=False,
+            story_id=story_id
         )
     
     except Exception as e:
@@ -149,23 +237,26 @@ async def continue_story(continuation: StoryContinuation):
 
 The reader chose: {continuation.chosen_option}
 
-Write the next part of the story (5-7 sentences) based on this choice. Develop the scene with detail and advance the plot meaningfully.
+Write the next part of the story (10-15 sentences) based on this choice. Develop the scene with rich detail, advance the plot meaningfully, and create an immersive experience. Make it substantial and engaging.
+
+IMPORTANT: The story continuation MUST be at least 10-15 complete sentences. Write a full, detailed paragraph that thoroughly develops the scene. Do NOT write just 2-3 short paragraphs - expand with rich details, character emotions, dialogue, atmospheric descriptions, and significant plot progression.
+
 You can use markdown formatting to emphasize parts of the story:
 - Use **bold** for emphasis or important elements
 - Use *italics* for thoughts or special terms
 - Keep it readable and don't overuse formatting
 
-Then suggest exactly 3 different ways the story could continue next.
+Then suggest exactly 3 different ways the story could continue next. Keep each option SHORT (5-7 words max) - just a brief guideline.
 
 Format your response as:
 
 STORY:
-[Your continuation paragraph here]
+[Your continuation paragraph here - MUST be detailed and immersive, at least 10-15 complete sentences with deep development]
 
 OPTIONS:
-1. [First possible continuation]
-2. [Second possible continuation]
-3. [Third possible continuation]"""
+1. [Short option - 5-7 words]
+2. [Short option - 5-7 words]
+3. [Short option - 5-7 words]"""
 
         messages = [
             ChatMessage(role="user", content=prompt)
@@ -175,7 +266,7 @@ OPTIONS:
             model="mistral-small-latest",
             messages=messages,
             temperature=0.8,
-            max_tokens=600
+            max_tokens=2000
         )
 
         content = response.choices[0].message.content
@@ -183,10 +274,27 @@ OPTIONS:
         # Parse the response
         story_text, options = parse_story_response(content)
         
+        # Update story if story_id is provided
+        if continuation.story_id:
+            story_data = storage.load_story(continuation.story_id)
+            
+            if story_data:
+                # Add new segment
+                story_data['segments'].append({
+                    'text': story_text,
+                    'options': options,
+                    'chosen_option': continuation.chosen_option,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                # Save updated story
+                storage.save_story(continuation.story_id, story_data)
+        
         return StoryResponse(
             story_text=story_text,
             options=options,
-            is_complete=False
+            is_complete=False,
+            story_id=continuation.story_id
         )
     
     except Exception as e:
@@ -200,7 +308,7 @@ async def end_story(story_end: StoryEnd):
 
 {story_end.story_so_far}
 
-Write a satisfying conclusion to this story in 6-8 sentences. Make it meaningful, bring closure to the narrative, and leave a lasting impression.
+Write a satisfying conclusion to this story in 12-18 sentences. Make it meaningful, bring closure to the narrative, create emotional impact, and leave a lasting impression. This is the finale - make it memorable and complete.
 You can use markdown formatting to emphasize parts of the story:
 - Use **bold** for emphasis or important elements
 - Use *italics* for thoughts or special terms
@@ -209,7 +317,7 @@ You can use markdown formatting to emphasize parts of the story:
 Format your response as:
 
 STORY:
-[Your conclusion here]"""
+[Your conclusion here - make it detailed, emotional, and complete]"""
 
         messages = [
             ChatMessage(role="user", content=prompt)
@@ -219,7 +327,7 @@ STORY:
             model="mistral-small-latest",
             messages=messages,
             temperature=0.7,
-            max_tokens=500
+            max_tokens=2500
         )
 
         content = response.choices[0].message.content
@@ -230,10 +338,30 @@ STORY:
         else:
             story_text = content.strip()
         
+        # Update story if story_id is provided
+        if story_end.story_id:
+            story_data = storage.load_story(story_end.story_id)
+            
+            if story_data:
+                # Add final segment
+                story_data['segments'].append({
+                    'text': story_text,
+                    'options': [],
+                    'chosen_option': 'End Story',
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+                # Mark as complete
+                story_data['is_complete'] = True
+                
+                # Save updated story
+                storage.save_story(story_end.story_id, story_data)
+        
         return StoryResponse(
             story_text=story_text,
             options=[],
-            is_complete=True
+            is_complete=True,
+            story_id=story_end.story_id
         )
     
     except Exception as e:
