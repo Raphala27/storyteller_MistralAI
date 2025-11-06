@@ -7,6 +7,8 @@ backend/.Python
 backend/venv/
 backend/env/
 backend/.env
+backend/.env.development
+backend/.env.production
 backend/*.log
 
 # Frontend

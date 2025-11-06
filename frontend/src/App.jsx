@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import './App.css'
 import mistralLogo from './assets/mistral-rainbow-white.png'
 
-const API_URL = 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function App() {
   const [view, setView] = useState('new') // new, saved
