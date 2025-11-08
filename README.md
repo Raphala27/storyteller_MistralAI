@@ -7,15 +7,21 @@ An interactive storytelling application powered by MistralAI that generates crea
 - **Interactive Story Generation**: Start with a genre, characters, or opening line
 - **AI-Powered**: Uses MistralAI's language model for creative story generation
 - **Dynamic Suggestions**: AI-generated suggestions for genres, characters, and opening lines that change with each session
-- **Story Persistence**: Save, load, continue, and delete your stories
+- **PostgreSQL Database**: Stories are persisted in PostgreSQL for reliable storage
+- **Story Management**: Save, load, continue, and delete your stories
+- **Markdown Formatting**: Stories support **bold**, *italic*, and other markdown formatting for enhanced readability
+- **Modern UI**: Beautiful, responsive interface built with React
 - **Complete Stories**: Generate satisfying conclusions on demand
 
 ## 🛠️ Tech Stack
 
 ### Backend
 - **FastAPI**: Modern Python web framework
+- **PostgreSQL**: Reliable database for story persistence
+- **SQLAlchemy 2.0**: Modern Python ORM with sync support
+- **psycopg3**: PostgreSQL adapter (Python 3.13 compatible)
 - **MistralAI SDK**: AI model integration for story generation
-- **Python 3.13**: Programming language
+- **Python 3.13**: Latest Python version
 
 ### Frontend
 - **React**: UI library
@@ -24,12 +30,58 @@ An interactive storytelling application powered by MistralAI that generates crea
 
 ## 📋 Prerequisites
 
-- Python 3.8 or higher
+- Python 3.13 (or 3.11+)
+- PostgreSQL 14 or higher
 - Node.js 16 or higher
 - npm or yarn
 - MistralAI API key (get one at [https://console.mistral.ai/](https://console.mistral.ai/))
 
-## Installation
+## 🚀 Quick Start
+
+### Option 1: Automated Setup (Recommended)
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd storyteller_MistralAI
+
+# Setup PostgreSQL database
+bash scripts/setup_postgres.sh
+
+# Edit backend/.env and add your MISTRAL_API_KEY
+
+# Start the application
+bash scripts/start.sh
+```
+
+### Option 2: Manual Setup
+
+See the detailed installation instructions below.
+
+## 📂 Project Structure
+
+```
+storyteller_MistralAI/
+├── backend/              # FastAPI backend
+│   ├── database.py      # Database configuration
+│   ├── models.py        # SQLAlchemy ORM models
+│   ├── storage_postgres.py  # PostgreSQL storage layer
+│   ├── main.py          # Main application
+│   └── requirements.txt # Python dependencies
+├── frontend/            # React frontend
+│   └── src/            # Frontend source code
+├── docs/               # Documentation
+│   ├── README.md       # Documentation index
+│   ├── ARCHITECTURE.md # Project architecture
+│   ├── DATABASE_README.md  # Database guide
+│   └── POSTGRES_QUICKSTART.md  # PostgreSQL quick start
+└── scripts/            # Utility scripts
+    ├── README.md       # Scripts documentation
+    ├── start.sh        # Start both servers
+    └── setup_postgres.sh  # Database setup
+```
+
+## 🚀 Installation
 
 ### 1. Clone the Repository
 
@@ -38,63 +90,100 @@ git clone <your-repo-url>
 cd storyteller_MistralAI
 ```
 
-### 2. Backend Setup
+### 2. PostgreSQL Setup
+
+Install PostgreSQL if not already installed:
+
+**macOS:**
+```bash
+brew install postgresql@14
+brew services start postgresql@14
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install postgresql postgresql-contrib
+sudo systemctl start postgresql
+```
+
+**Windows:**
+Download from [postgresql.org](https://www.postgresql.org/download/windows/)
+
+Then run the setup script:
+```bash
+bash scripts/setup_postgres.sh
+```
+
+### 3. Backend Setup
 
 ```bash
 cd backend
 
-# Create a virtual environment (recommended)
-python -m venv venv
+# The setup script already created the venv, but if needed:
+# python -m venv venv
+# source venv/bin/activate  # or venv\Scripts\activate on Windows
 
-# Activate virtual environment
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
-# venv\Scripts\activate
-
-# Install dependencies
+# Install dependencies (done by setup script, but if needed:)
 pip install -r requirements.txt
 
-# Create .env file with your MistralAI API key
-cp .env.example .env
 # Edit .env and add your MISTRAL_API_KEY
+nano .env  # or use your preferred editor
 ```
 
-### 3. Frontend Setup
+### 4. Frontend Setup
 
 ```bash
-cd ../frontend
-
-# Install dependencies
+cd frontend
 npm install
 ```
 
 ## Running the Application
 
-### Start the Backend Server
+### Easy Way: Use the Start Script
 
 ```bash
+# From project root
+bash scripts/start.sh
+```
+
+This will start both backend (port 8000) and frontend (port 5173) servers.
+
+### Manual Way
+
+**Backend:**
+```bash
 cd backend
-source venv/bin/activate  # Activate venv if not already activated
+source venv/bin/activate
 python main.py
 ```
 
-The backend will start at `http://localhost:8000`
-
-You can verify it's running by visiting: `http://localhost:8000` or `http://localhost:8000/docs` for API documentation.
-
-### Start the Frontend Development Server
-
-In a new terminal:
-
+**Frontend (in a new terminal):**
 ```bash
 cd frontend
 npm run dev
 ```
 
-The frontend will start at `http://localhost:5173`
+Open your browser at `http://localhost:5173`
 
-Open your browser and navigate to `http://localhost:5173` to use the application.
+## 📚 Documentation
+
+- **[Getting Started](docs/POSTGRES_QUICKSTART.md)** - Quick start guide
+- **[Architecture](docs/ARCHITECTURE.md)** - Project structure and design
+- **[Database Guide](docs/DATABASE_README.md)** - PostgreSQL setup and usage
+- **[Scripts Documentation](scripts/README.md)** - Available scripts and usage
+
+## 🎯 API Endpoints
+
+- `GET /` - Health check
+- `GET /suggestions` - Get AI-generated suggestions
+- `POST /start-story` - Start a new story
+- `POST /continue-story` - Continue an existing story
+- `POST /end-story` - Generate an ending
+- `GET /stories` - List all saved stories
+- `GET /stories/{id}` - Get a specific story
+- `DELETE /stories/{id}` - Delete a story
+
+API Documentation available at: `http://localhost:8000/docs`
 
 ## 📖 How to Use
 
@@ -102,33 +191,56 @@ Open your browser and navigate to `http://localhost:5173` to use the application
    - Enter a genre (required)
    - Optionally add characters and/or an opening line
    - Click "Start Story" to generate the opening
+   - Story is automatically saved to PostgreSQL
 
 2. **Continue the Story**:
    - Read the generated story segment
    - Choose one of three continuation options
-   - The story will expand based on your choice
+   - The story expands based on your choice
+   - Each segment is saved automatically
 
 3. **End the Story**:
    - Click "End Story" when you want to conclude
-   - The AI will generate a satisfying ending
+   - The AI generates a satisfying ending
    - Or click "Start Over" to create a new story
 
-## 🎯 API Endpoints
+4. **Manage Stories**:
+   - View all saved stories in the list
+   - Load and continue previous stories
+   - Delete stories you no longer want
 
-- `GET /` - Health check
-- `GET /suggestions` - Get AI-generated suggestions for genres, characters, and opening lines (dynamic)
-- `POST /start-story` - Start a new story (automatically saved)
-- `POST /continue-story` - Continue an existing story
-- `POST /end-story` - Generate an ending for the story
-- `GET /stories` - List all saved stories
-- `GET /stories/{id}` - Get a specific story by ID
-- `DELETE /stories/{id}` - Delete a story
+## 🐛 Troubleshooting
+
+### Backend Issues
+
+- **"MISTRAL_API_KEY not found"**: Ensure `backend/.env` contains your API key
+- **Database connection errors**: Run `bash scripts/setup_postgres.sh` to setup the database
+- **Import errors**: Verify all packages are installed with `pip install -r requirements.txt`
+- **Python 3.13 compatibility**: The project uses synchronous psycopg3 for compatibility
+
+### Frontend Issues
+
+- **Can't connect to backend**: Ensure the backend is running on port 8000
+- **Dependencies not found**: Run `npm install` in the frontend directory
+
+### Database Issues
+
+- **Connection refused**: Make sure PostgreSQL is running
+  ```bash
+  # macOS
+  brew services start postgresql@14
+  # Ubuntu/Debian
+  sudo systemctl start postgresql
+  ```
+- **Database doesn't exist**: Run `bash scripts/setup_postgres.sh`
+
+For more troubleshooting, see [docs/DATABASE_README.md](docs/DATABASE_README.md)
 
 ## Customization
 
 ### Modifying Story Length
 
-In `backend/main.py`, adjust the `max_tokens` parameter in the MistralAI client calls:
+In `backend/main.py`, adjust the `max_tokens` parameter:
 
 ```python
 response = mistral_client.chat(
@@ -144,6 +256,27 @@ response = mistral_client.chat(
 Replace `"mistral-small-latest"` with other Mistral models like:
 - `"mistral-medium-latest"`
 - `"mistral-large-latest"`
+
+### Database Configuration
+
+Edit `backend/.env` to change database settings:
+```bash
+DATABASE_URL=postgresql+psycopg://localhost/storyteller_db
+```
+
+For more details, see [docs/DATABASE_README.md](docs/DATABASE_README.md)
+
+### Styling
+
+Modify `frontend/src/App.css` to change colors, layouts, and animations.
+
+## � Deployment
+
+The application is configured for deployment on Render.com with PostgreSQL.
+
+See [docs/POSTGRES_QUICKSTART.md](docs/POSTGRES_QUICKSTART.md) for deployment instructions.
+
+## 🐛 Troubleshooting
 
 ## 📝 License
 

@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
@@ -68,7 +67,6 @@ class StoryStorage:
             
         except Exception as e:
             print(f"Error listing stories: {e}")
-        
         return stories
     
     def delete_story(self, story_id: str) -> bool:

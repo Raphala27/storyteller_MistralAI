@@ -4,11 +4,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         User's Browser                       │
-│                      (http://localhost:5173)                 │
+│                         User's Browser                      │
+│                      (http://localhost:5173)                │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │           React Frontend (Vite)                       │  │
-│  │  - Input Form (Genre, Characters, Opening Line)      │  │
+│  │  - Input Form (Genre, Characters, Opening Line)       │  │
 │  │  - Story Display                                      │  │
 │  │  - Option Buttons                                     │  │
 │  │  - Preset Suggestions                                 │  │
@@ -20,15 +20,15 @@
                          │ POST /end-story
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend                           │
-│                  (http://localhost:8000)                     │
+│                    FastAPI Backend                          │
+│                  (http://localhost:8000)                    │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  API Endpoints:                                       │  │
 │  │  • GET  /suggestions                                  │  │
 │  │  • POST /start-story                                  │  │
 │  │  • POST /continue-story                               │  │
 │  │  • POST /end-story                                    │  │
-│  │                                                        │  │
+│  │                                                       │  │
 │  │  Response Parser:                                     │  │
 │  │  • Extract story text                                 │  │
 │  │  • Parse options                                      │  │
@@ -39,14 +39,14 @@
                          │ ChatMessage format
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    MistralAI API                             │
-│                 (api.mistral.ai)                             │
+│                    MistralAI API                            │
+│                 (api.mistral.ai)                            │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  Model: mistral-small-latest                          │  │
 │  │  Temperature: 0.7-0.8                                 │  │
-│  │  Max Tokens: 300-400                                  │  │
-│  │                                                        │  │
-│  │  Returns: Creative story text and suggestions        │  │
+│  │  Max Tokens: 400-1200                                 │  │
+│  │                                                       │  │
+│  │  Returns: Creative story text and suggestions         │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -127,151 +127,36 @@
                     └─────────────┘
 ```
 
-## Data Flow: Story Generation
-
-```
-User Input                  Backend Processing              AI Response
-─────────────────────────────────────────────────────────────────────
-
-┌──────────────┐
-│ Genre:       │
-│ "Fantasy"    │
-│              │          ┌────────────────────┐
-│ Characters:  │          │ Build Prompt:      │
-│ "A wizard"   │  ═══►   │ "You are a         │
-│              │          │  storyteller..."   │
-│ Opening:     │          │                    │
-│ "Once upon"  │          │ Include all inputs │
-└──────────────┘          └─────────┬──────────┘
-                                    │
-                                    ▼
-                          ┌────────────────────┐
-                          │ Send to MistralAI: │
-                          │ • Model selection  │
-                          │ • Temperature: 0.8 │
-                          │ • Max tokens: 400  │
-                          └─────────┬──────────┘
-                                    │
-                                    ▼
-                          ┌────────────────────┐      ┌──────────────┐
-                          │ AI Processing...   │ ───► │ Raw AI       │
-                          │                    │      │ Response     │
-                          └────────────────────┘      └──────┬───────┘
-                                                             │
-                                                             ▼
-                                                    ┌────────────────┐
-                                                    │ Parse Response:│
-                                                    │ Extract:       │
-                                                    │ • Story text   │
-                                                    │ • Options list │
-                                                    └──────┬─────────┘
-                                                           │
-                                                           ▼
-┌──────────────┐                                  ┌────────────────┐
-│ Display to   │  ◄════════════════════════════   │ Format JSON:   │
-│ User:        │                                  │ {              │
-│              │                                  │  story_text,   │
-│ Story Text   │                                  │  options[],    │
-│ + 3 Options  │                                  │  is_complete   │
-└──────────────┘                                  │ }              │
-                                                  └────────────────┘
-```
-
-## Component State Machine
-
-```
-┌─────────────┐
-│   'input'   │ ◄──────────────────┐
-│             │                    │
-│ Initial     │                    │
-│ Stage       │                    │
-└──────┬──────┘                    │
-       │                           │
-       │ startStory()              │
-       │                           │
-       ▼                           │
-┌─────────────┐                    │
-│   'story'   │                    │
-│             │                    │ resetStory()
-│ Interactive │                    │
-│ Stage       │                    │
-└──────┬──────┘                    │
-       │                           │
-       │ endStory()                │
-       │                           │
-       ▼                           │
-┌─────────────┐                    │
-│   'ended'   │ ───────────────────┘
-│             │
-│ Complete    │
-│ Stage       │
-└─────────────┘
-```
-
-## API Request/Response Examples
-
-### Start Story Request
-```json
-POST /start-story
-{
-  "genre": "Fantasy Adventure",
-  "characters": "A brave knight",
-  "opening_line": null
-}
-```
-
-### Start Story Response
-```json
-{
-  "story_text": "Sir Aldric stood at the edge...",
-  "options": [
-    "Enter the dark forest",
-    "Seek wisdom from the elder",
-    "Follow the mysterious sound"
-  ],
-  "is_complete": false
-}
-```
-
-### Continue Story Request
-```json
-POST /continue-story
-{
-  "story_so_far": "Sir Aldric stood at the edge...",
-  "chosen_option": "Enter the dark forest"
-}
-```
-
 ## Technology Stack Visualization
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              Frontend Layer                      │
-│  ┌────────────┐  ┌────────────┐  ┌───────────┐ │
-│  │   React    │  │    Vite    │  │   Axios   │ │
-│  │  (v18.3)   │  │  (v7.2)    │  │  (HTTP)   │ │
-│  └────────────┘  └────────────┘  └───────────┘ │
+│              Frontend Layer                     │
+│  ┌────────────┐  ┌────────────┐  ┌───────────┐  │
+│  │   React    │  │    Vite    │  │   Axios   │  │
+│  │  (v18.3)   │  │  (v7.2)    │  │  (HTTP)   │  │
+│  └────────────┘  └────────────┘  └───────────┘  │
 └─────────────────────────────────────────────────┘
                        │
                   HTTP/JSON
                        │
 ┌─────────────────────────────────────────────────┐
-│              Backend Layer                       │
-│  ┌────────────┐  ┌────────────┐  ┌───────────┐ │
-│  │  FastAPI   │  │   Python   │  │  Pydantic │ │
-│  │  (0.104)   │  │   (3.8+)   │  │  (2.5)    │ │
-│  └────────────┘  └────────────┘  └───────────┘ │
+│              Backend Layer                      │
+│  ┌────────────┐  ┌────────────┐  ┌───────────┐  │
+│  │  FastAPI   │  │   Python   │  │  Pydantic │  │
+│  │  (0.104)   │  │   (3.8+)   │  │  (2.5)    │  │
+│  └────────────┘  └────────────┘  └───────────┘  │
 └─────────────────────────────────────────────────┘
                        │
                    API Call
                        │
 ┌─────────────────────────────────────────────────┐
-│              AI Layer                            │
-│  ┌────────────┐  ┌────────────┐                │
-│  │ MistralAI  │  │   Model    │                │
-│  │    SDK     │  │  mistral-  │                │
-│  │  (0.4.2)   │  │   small    │                │
-│  └────────────┘  └────────────┘                │
+│              AI Layer                           │
+│  ┌────────────┐  ┌────────────┐                 │
+│  │ MistralAI  │  │   Model    │                 │
+│  │    SDK     │  │  mistral-  │                 │
+│  │  (0.4.2)   │  │   small    │                 │
+│  └────────────┘  └────────────┘                 │
 └─────────────────────────────────────────────────┘
 ```
 
