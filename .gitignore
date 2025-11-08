@@ -1,3 +1,7 @@
+# Logs
+logs/
+*.log
+
 # Backend
 backend/__pycache__/
 backend/*.pyc
@@ -9,7 +13,6 @@ backend/env/
 backend/.env
 backend/.env.development
 backend/.env.production
-backend/*.log
 
 # Frontend
 frontend/node_modules/
@@ -20,12 +23,8 @@ frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local
 frontend/.env.production.local
-frontend/npm-debug.log*
-frontend/yarn-debug.log*
-frontend/yarn-error.log*
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo

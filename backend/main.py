@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -10,9 +10,16 @@ from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
 from datetime import datetime
 import uuid
-from storage import storage
+
+# Database imports
+from database import get_db, init_db, close_db
+from sqlalchemy.orm import Session
+from storage_postgres import postgres_storage
 
 load_dotenv()
+
+# Initialize database on startup
+init_db()
 
 app = FastAPI(title="AI Story Generator API")
 
@@ -37,22 +44,22 @@ class StoryStart(BaseModel):
     genre: str
     characters: Optional[str] = None
     opening_line: Optional[str] = None
-    story_id: Optional[str] = None  # Optional ID to continue existing story
+    story_id: Optional[str] = None
 
 class StoryContinuation(BaseModel):
     story_so_far: str
     chosen_option: str
-    story_id: Optional[str] = None  # Story ID for saving
+    story_id: Optional[str] = None 
 
 class StoryEnd(BaseModel):
     story_so_far: str
-    story_id: Optional[str] = None  # Story ID for saving
+    story_id: Optional[str] = None
 
 class StoryResponse(BaseModel):
     story_text: str
     options: List[str]
     is_complete: bool = False
-    story_id: Optional[str] = None  # Return story ID for frontend
+    story_id: Optional[str] = None
 
 class StorySummary(BaseModel):
     story_id: str
@@ -160,33 +167,29 @@ Make them diverse, creative, and different from common examples. Return ONLY the
         }
 
 @app.get("/stories", response_model=List[StorySummary])
-async def list_stories():
-    """Get list of all saved stories"""
-    stories = storage.list_stories()
+def list_stories(db: Session = Depends(get_db)):
+    """List all user stories"""
+    stories = postgres_storage.list_stories(db)
     return stories
 
 @app.get("/stories/{story_id}", response_model=StoryDetail)
-async def get_story(story_id: str):
+def get_story(story_id: str, db: Session = Depends(get_db)):
     """Get a specific story by ID"""
-    story = storage.load_story(story_id)
-    
+    story = postgres_storage.load_story(db, story_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
-    
     return story
 
 @app.delete("/stories/{story_id}")
-async def delete_story(story_id: str):
+def delete_story(story_id: str, db: Session = Depends(get_db)):
     """Delete a story"""
-    success = storage.delete_story(story_id)
-    
+    success = postgres_storage.delete_story(db, story_id)
     if not success:
         raise HTTPException(status_code=404, detail="Story not found")
-    
     return {"message": "Story deleted successfully"}
 
 @app.post("/start-story", response_model=StoryResponse)
-async def start_story(story_start: StoryStart):
+def start_story(story_start: StoryStart, db: Session = Depends(get_db)):
     """Start a new story based on user inputs"""
     try:
         # Build the prompt
@@ -262,7 +265,7 @@ OPTIONS:
         }
         
         # Save story
-        storage.save_story(story_id, story_data)
+        postgres_storage.save_story(db, story_id, story_data)
         
         return StoryResponse(
             story_text=story_text,
@@ -275,7 +278,7 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error generating story: {str(e)}")
 
 @app.post("/continue-story", response_model=StoryResponse)
-async def continue_story(continuation: StoryContinuation):
+def continue_story(continuation: StoryContinuation, db: Session = Depends(get_db)):
     """Continue the story based on the user's chosen option"""
     try:
         prompt = f"""You are continuing a story. Here's what has happened so far:
@@ -323,7 +326,7 @@ OPTIONS:
         
         # Update story if story_id is provided
         if continuation.story_id:
-            story_data = storage.load_story(continuation.story_id)
+            story_data = postgres_storage.load_story(db, continuation.story_id)
             
             if story_data:
                 # Add new segment
@@ -335,7 +338,7 @@ OPTIONS:
                 })
                 
                 # Save updated story
-                storage.save_story(continuation.story_id, story_data)
+                postgres_storage.save_story(db, continuation.story_id, story_data)
         
         return StoryResponse(
             story_text=story_text,
@@ -348,7 +351,7 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error continuing story: {str(e)}")
 
 @app.post("/end-story", response_model=StoryResponse)
-async def end_story(story_end: StoryEnd):
+def end_story(story_end: StoryEnd, db: Session = Depends(get_db)):
     """Generate an ending for the story"""
     try:
         prompt = f"""You are concluding a story. Here's what has happened so far:
@@ -387,7 +390,7 @@ STORY:
         
         # Update story if story_id is provided
         if story_end.story_id:
-            story_data = storage.load_story(story_end.story_id)
+            story_data = postgres_storage.load_story(db, story_end.story_id)
             
             if story_data:
                 # Add final segment
@@ -402,7 +405,7 @@ STORY:
                 story_data['is_complete'] = True
                 
                 # Save updated story
-                storage.save_story(story_end.story_id, story_data)
+                postgres_storage.save_story(db, story_end.story_id, story_data)
         
         return StoryResponse(
             story_text=story_text,
@@ -438,7 +441,6 @@ def parse_story_response(content: str) -> tuple[str, List[str]]:
                     "Take a different direction",
                     "Reveal something surprising"
                 ][:3 - len(options)])
-            
             return story_text, options[:3]
         else:
             # Fallback if format is not as expected
