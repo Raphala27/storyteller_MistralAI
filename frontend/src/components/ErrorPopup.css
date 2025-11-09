@@ -58,6 +58,12 @@
               0 0 60px rgba(0, 212, 255, 0.3);
 }
 
+.error-popup.confirm {
+  border-color: #FFD800;
+  box-shadow: 0 0 30px rgba(255, 216, 0, 0.5),
+              0 0 60px rgba(255, 216, 0, 0.3);
+}
+
 .error-popup-header {
   display: flex;
   align-items: center;
@@ -73,6 +79,10 @@
 
 .error-popup.info .error-popup-header {
   border-bottom-color: #00D4FF;
+}
+
+.error-popup.confirm .error-popup-header {
+  border-bottom-color: #FFD800;
 }
 
 .error-popup-icon {
@@ -109,6 +119,11 @@
   text-shadow: 0 0 10px rgba(0, 212, 255, 0.8);
 }
 
+.error-popup.confirm .error-popup-title {
+  color: #FFD800;
+  text-shadow: 0 0 10px rgba(255, 216, 0, 0.8);
+}
+
 .error-popup-message {
   color: #ffffff;
   font-size: 16px;
@@ -126,6 +141,10 @@
 
 .error-popup.info .error-popup-message {
   border-left-color: #00D4FF;
+}
+
+.error-popup.confirm .error-popup-message {
+  border-left-color: #FFD800;
 }
 
 .error-popup-close {
@@ -175,4 +194,61 @@
 .error-popup.info .error-popup-close:hover {
   background: linear-gradient(135deg, #00FFFF 0%, #00D4FF 100%);
   box-shadow: 0 2px 0 #006680;
+}
+
+/* Confirmation dialog buttons */
+.error-popup-buttons {
+  display: flex;
+  gap: 15px;
+  width: 100%;
+}
+
+.error-popup-cancel,
+.error-popup-confirm {
+  flex: 1;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transition: all 0.2s ease;
+  font-family: 'Courier New', monospace;
+  border: 2px solid;
+}
+
+.error-popup-cancel {
+  background: linear-gradient(135deg, #444444 0%, #2d2d2d 100%);
+  color: #ffffff;
+  border-color: #666666;
+  box-shadow: 0 4px 0 #1a1a1a;
+}
+
+.error-popup-cancel:hover {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #1a1a1a;
+  background: linear-gradient(135deg, #555555 0%, #3d3d3d 100%);
+}
+
+.error-popup-cancel:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+
+.error-popup-confirm {
+  background: linear-gradient(135deg, #FF3333 0%, #CC0000 100%);
+  color: #000000;
+  border-color: #FFD800;
+  box-shadow: 0 4px 0 #990000;
+}
+
+.error-popup-confirm:hover {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #990000;
+  background: linear-gradient(135deg, #FF5555 0%, #FF3333 100%);
+}
+
+.error-popup-confirm:active {
+  transform: translateY(4px);
+  box-shadow: none;
 }

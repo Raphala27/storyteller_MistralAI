@@ -21,7 +21,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 function App() {
   const { isAuthenticated, loading: authLoading } = useAuth()
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const [errorPopup, setErrorPopup] = useState({ message: '', type: 'error' })
+  const [errorPopup, setErrorPopup] = useState({ message: '', type: 'error', onConfirm: null })
   const [view, setView] = useState('new') // new, saved
   const [stage, setStage] = useState('input') // input, story, ended
   const [storyId, setStoryId] = useState(null)
@@ -53,12 +53,12 @@ function App() {
   }
 
   // Helper function to show error/warning popup
-  const showPopup = (message, type = 'error') => {
-    setErrorPopup({ message, type })
+  const showPopup = (message, type = 'error', onConfirm = null) => {
+    setErrorPopup({ message, type, onConfirm })
   }
 
   const closePopup = () => {
-    setErrorPopup({ message: '', type: 'error' })
+    setErrorPopup({ message: '', type: 'error', onConfirm: null })
   }
 
   // Load suggestions on mount
@@ -139,23 +139,27 @@ function App() {
 
   // Delete a saved story
   const deleteStory = async (id, isLocal = false) => {
-    if (!confirm('Are you sure you want to delete this story?')) {
-      return
-    }
-    
-    try {
-      if (isLocal) {
-        // Delete from localStorage
-        deleteLocalStory(id)
-      } else {
-        // Delete from API
-        await axios.delete(`${API_URL}/stories/${id}`)
+    // Show confirmation popup
+    showPopup(
+      'Are you sure you want to delete this story? This action cannot be undone.',
+      'confirm',
+      async () => {
+        closePopup()
+        try {
+          if (isLocal) {
+            // Delete from localStorage
+            deleteLocalStory(id)
+          } else {
+            // Delete from API
+            await axios.delete(`${API_URL}/stories/${id}`)
+          }
+          loadSavedStories()
+        } catch (error) {
+          console.error('Error deleting story:', error)
+          showPopup('Error deleting story. Please try again.', 'error')
+        }
       }
-      loadSavedStories()
-    } catch (error) {
-      console.error('Error deleting story:', error)
-      showPopup('Error deleting story. Please try again.', 'error')
-    }
+    )
   }
 
   const startStory = async () => {
@@ -332,7 +336,8 @@ function App() {
         <ErrorPopup 
           message={errorPopup.message} 
           type={errorPopup.type}
-          onClose={closePopup} 
+          onClose={closePopup}
+          onConfirm={errorPopup.onConfirm}
         />
       )}
       
