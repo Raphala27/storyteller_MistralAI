@@ -1,8 +1,40 @@
 """SQLAlchemy ORM models for stories"""
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, Text, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
 from database import Base
+
+
+class User(Base):
+    """User model for authentication"""
+    __tablename__ = "users"
+    
+    # Primary key
+    user_id = Column(String(36), primary_key=True, index=True)
+    
+    # User credentials
+    username = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    stories = relationship("Story", back_populates="user", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<User(user_id={self.user_id}, username={self.username}, email={self.email})>"
+    
+    def to_dict(self):
+        """Convert model to dictionary (without password)"""
+        return {
+            'user_id': self.user_id,
+            'username': self.username,
+            'email': self.email,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
 
 class Story(Base):
@@ -28,8 +60,11 @@ class Story(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
-    # User identification (for future multi-user support)
-    user_id = Column(String(100), nullable=True, index=True)
+    # User identification (for multi-user support)
+    user_id = Column(String(36), ForeignKey('users.user_id', ondelete='CASCADE'), nullable=True, index=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="stories")
     
     def __repr__(self):
         return f"<Story(story_id={self.story_id}, title={self.title}, genre={self.genre})>"

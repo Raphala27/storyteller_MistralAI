@@ -51,10 +51,16 @@ class PostgresStoryStorage:
             print(f"Error saving story to database: {e}")
             return False
     
-    def load_story(self, db: Session, story_id: str) -> Optional[dict]:
+    def load_story(self, db: Session, story_id: str, user_id: Optional[str] = None) -> Optional[dict]:
         """Load a story from PostgreSQL"""
         try:
-            stmt = select(StoryModel).where(StoryModel.story_id == story_id)
+            if user_id:
+                stmt = select(StoryModel).where(
+                    (StoryModel.story_id == story_id) & (StoryModel.user_id == user_id)
+                )
+            else:
+                stmt = select(StoryModel).where(StoryModel.story_id == story_id)
+            
             result = db.execute(stmt)
             story = result.scalar_one_or_none()
             
@@ -83,10 +89,16 @@ class PostgresStoryStorage:
             print(f"Error listing stories from database: {e}")
             return []
     
-    def delete_story(self, db: Session, story_id: str) -> bool:
+    def delete_story(self, db: Session, story_id: str, user_id: Optional[str] = None) -> bool:
         """Delete a story from PostgreSQL"""
         try:
-            stmt = delete(StoryModel).where(StoryModel.story_id == story_id)
+            if user_id:
+                stmt = delete(StoryModel).where(
+                    (StoryModel.story_id == story_id) & (StoryModel.user_id == user_id)
+                )
+            else:
+                stmt = delete(StoryModel).where(StoryModel.story_id == story_id)
+            
             result = db.execute(stmt)
             db.commit()
             
