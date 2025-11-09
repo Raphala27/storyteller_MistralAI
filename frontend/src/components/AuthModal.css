@@ -1,0 +1,219 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-in;
+  backdrop-filter: blur(5px);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  background: #000000;
+  border: 4px solid #FF8205;
+  box-shadow: 
+    0 0 0 2px #000000,
+    0 0 0 6px #FFD800,
+    0 20px 60px rgba(255, 130, 5, 0.5),
+    inset 0 0 50px rgba(255, 130, 5, 0.1);
+  padding: 40px;
+  max-width: 450px;
+  width: 90%;
+  position: relative;
+  animation: slideUp 0.3s ease-out;
+  image-rendering: pixelated;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-close {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: transparent;
+  border: 2px solid #FF8205;
+  color: #FFAF00;
+  font-size: 28px;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, sans-serif;
+  font-weight: bold;
+  transition: all 0.3s ease;
+  image-rendering: pixelated;
+}
+
+.modal-close:hover {
+  background: #FF8205;
+  color: #000000;
+  border-color: #FFD800;
+  transform: scale(1.1);
+}
+
+.auth-modal h2 {
+  color: #FFAF00;
+  font-size: 28px;
+  margin-bottom: 10px;
+  text-align: center;
+  font-family: Arial, sans-serif;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 2px 2px 0px #E10500, 4px 4px 0px #000000;
+}
+
+.auth-subtitle {
+  color: #FFD800;
+  text-align: center;
+  margin-bottom: 30px;
+  font-size: 14px;
+  text-shadow: 1px 1px 0px #000000;
+}
+
+.error-message {
+  background: rgba(225, 5, 0, 0.3);
+  border: 2px solid #E10500;
+  color: #FFD800;
+  padding: 12px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  text-align: center;
+  font-weight: bold;
+  text-shadow: 1px 1px 0px #000000;
+  image-rendering: pixelated;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  color: #FFAF00;
+  font-size: 14px;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-family: Arial, sans-serif;
+  text-shadow: 1px 1px 0px #000000;
+}
+
+.form-group input {
+  padding: 14px 16px;
+  border: 3px solid #FF8205;
+  font-size: 16px;
+  background: #000000;
+  color: #FFD800;
+  transition: all 0.3s ease;
+  font-family: Arial, sans-serif;
+  image-rendering: pixelated;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #FFAF00;
+  box-shadow: 0 0 10px rgba(255, 175, 0, 0.5);
+}
+
+.form-group input::placeholder {
+  color: rgba(255, 216, 0, 0.4);
+}
+
+.auth-submit-button {
+  padding: 16px;
+  background: #FF8205;
+  color: #000000;
+  border: 3px solid #FFAF00;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 10px;
+  font-family: Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-shadow: none;
+  image-rendering: pixelated;
+}
+
+.auth-submit-button:hover:not(:disabled) {
+  background: #FFAF00;
+  border-color: #FFD800;
+  box-shadow: 0 5px 15px rgba(255, 175, 0, 0.6);
+  transform: translateY(-2px);
+}
+
+.auth-submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-switch {
+  margin-top: 25px;
+  text-align: center;
+}
+
+.auth-switch p {
+  color: #FFD800;
+  font-size: 14px;
+  text-shadow: 1px 1px 0px #000000;
+}
+
+.switch-button {
+  background: none;
+  border: none;
+  color: #FFAF00;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: underline;
+  transition: color 0.3s ease;
+  text-shadow: 1px 1px 0px #000000;
+}
+
+.switch-button:hover {
+  color: #FF8205;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .modal-content {
+    padding: 30px 20px;
+  }
+  
+  .auth-modal h2 {
+    font-size: 24px;
+  }
+}

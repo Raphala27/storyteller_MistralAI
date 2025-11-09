@@ -3,10 +3,15 @@ import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import './App.css'
 import mistralLogo from './assets/mistral-rainbow-white.png'
+import { useAuth } from './contexts/AuthContext'
+import AuthModal from './components/AuthModal'
+import UserMenu from './components/UserMenu'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function App() {
+  const { isAuthenticated, loading: authLoading } = useAuth()
+  const [showAuthModal, setShowAuthModal] = useState(false)
   const [view, setView] = useState('new') // new, saved
   const [stage, setStage] = useState('input') // input, story, ended
   const [storyId, setStoryId] = useState(null)
@@ -44,16 +49,29 @@ function App() {
 
   // Fetch saved stories when switching to saved view
   const loadSavedStories = async () => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true)
+      return
+    }
+    
     try {
       const response = await axios.get(`${API_URL}/stories`)
       setSavedStories(response.data)
     } catch (error) {
       console.error('Error loading saved stories:', error)
+      if (error.response?.status === 401) {
+        setShowAuthModal(true)
+      }
     }
   }
 
   // Load a saved story
   const loadStory = async (id) => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true)
+      return
+    }
+    
     setLoading(true)
     try {
       const response = await axios.get(`${API_URL}/stories/${id}`)
@@ -104,6 +122,11 @@ function App() {
   const startStory = async () => {
     if (!genre.trim()) {
       alert('Please enter a genre!')
+      return
+    }
+
+    if (!isAuthenticated) {
+      setShowAuthModal(true)
       return
     }
 
@@ -178,6 +201,10 @@ function App() {
   }
 
   const switchToSavedView = () => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true)
+      return
+    }
     setView('saved')
     loadSavedStories()
   }
@@ -187,8 +214,24 @@ function App() {
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
   }
 
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div className="App">
+        <div className="loading-screen">
+          <div className="spinner"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="App">
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      
+      <UserMenu onOpenAuth={() => setShowAuthModal(true)} />
+      
       <header className="header">
         <h1>AI Story Generator</h1>
         <div className="subtitle-container">
