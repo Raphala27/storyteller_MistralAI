@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import './App.css'
@@ -6,12 +6,22 @@ import mistralLogo from './assets/mistral-rainbow-white.png'
 import { useAuth } from './contexts/AuthContext'
 import AuthModal from './components/AuthModal'
 import UserMenu from './components/UserMenu'
+import ErrorPopup from './components/ErrorPopup'
+import {
+  getLocalStories,
+  saveLocalStory,
+  getLocalStory,
+  deleteLocalStory,
+  canCreateLocalStory,
+  formatLocalStoryForDisplay
+} from './utils/localStorageStories'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function App() {
   const { isAuthenticated, loading: authLoading } = useAuth()
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const [errorPopup, setErrorPopup] = useState({ message: '', type: 'error', onConfirm: null })
   const [view, setView] = useState('new') // new, saved
   const [stage, setStage] = useState('input') // input, story, ended
   const [storyId, setStoryId] = useState(null)
@@ -42,40 +52,63 @@ function App() {
     }
   }
 
+  // Helper function to show error/warning popup
+  const showPopup = (message, type = 'error', onConfirm = null) => {
+    setErrorPopup({ message, type, onConfirm })
+  }
+
+  const closePopup = () => {
+    setErrorPopup({ message: '', type: 'error', onConfirm: null })
+  }
+
   // Load suggestions on mount
-  useState(() => {
+  useEffect(() => {
     loadSuggestions()
   }, [])
 
   // Fetch saved stories when switching to saved view
   const loadSavedStories = async () => {
-    if (!isAuthenticated) {
-      setShowAuthModal(true)
-      return
-    }
-    
-    try {
-      const response = await axios.get(`${API_URL}/stories`)
-      setSavedStories(response.data)
-    } catch (error) {
-      console.error('Error loading saved stories:', error)
-      if (error.response?.status === 401) {
-        setShowAuthModal(true)
+    if (isAuthenticated) {
+      // Load from API for authenticated users
+      try {
+        const response = await axios.get(`${API_URL}/stories`)
+        setSavedStories(response.data)
+      } catch (error) {
+        console.error('Error loading saved stories:', error)
+        if (error.response?.status === 401) {
+          setShowAuthModal(true)
+        }
       }
+    } else {
+      // Load from localStorage for non-authenticated users
+      const localStories = getLocalStories()
+      const formatted = localStories.map(formatLocalStoryForDisplay)
+      setSavedStories(formatted)
     }
   }
 
   // Load a saved story
-  const loadStory = async (id) => {
-    if (!isAuthenticated) {
-      setShowAuthModal(true)
-      return
-    }
-    
+  const loadStory = async (id, isLocal = false) => {
     setLoading(true)
     try {
-      const response = await axios.get(`${API_URL}/stories/${id}`)
-      const storyData = response.data
+      let storyData
+      
+      if (isLocal) {
+        // Load from localStorage
+        storyData = getLocalStory(id)
+        if (!storyData) {
+          showPopup('Story not found', 'warning')
+          return
+        }
+      } else {
+        // Load from API
+        if (!isAuthenticated) {
+          setShowAuthModal(true)
+          return
+        }
+        const response = await axios.get(`${API_URL}/stories/${id}`)
+        storyData = response.data
+      }
       
       setStoryId(id)
       setGenre(storyData.genre)
@@ -98,35 +131,46 @@ function App() {
       setView('new')
     } catch (error) {
       console.error('Error loading story:', error)
-      alert('Error loading story. Please try again.')
+      showPopup('Error loading story. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
   }
 
   // Delete a saved story
-  const deleteStory = async (id) => {
-    if (!confirm('Are you sure you want to delete this story?')) {
-      return
-    }
-    
-    try {
-      await axios.delete(`${API_URL}/stories/${id}`)
-      loadSavedStories()
-    } catch (error) {
-      console.error('Error deleting story:', error)
-      alert('Error deleting story. Please try again.')
-    }
+  const deleteStory = async (id, isLocal = false) => {
+    // Show confirmation popup
+    showPopup(
+      'Are you sure you want to delete this story? This action cannot be undone.',
+      'confirm',
+      async () => {
+        closePopup()
+        try {
+          if (isLocal) {
+            // Delete from localStorage
+            deleteLocalStory(id)
+          } else {
+            // Delete from API
+            await axios.delete(`${API_URL}/stories/${id}`)
+          }
+          loadSavedStories()
+        } catch (error) {
+          console.error('Error deleting story:', error)
+          showPopup('Error deleting story. Please try again.', 'error')
+        }
+      }
+    )
   }
 
   const startStory = async () => {
     if (!genre.trim()) {
-      alert('Please enter a genre!')
+      showPopup('Please enter a genre!', 'warning')
       return
     }
 
-    if (!isAuthenticated) {
-      setShowAuthModal(true)
+    // Check if non-authenticated user can create more stories
+    if (!isAuthenticated && !canCreateLocalStory()) {
+      showPopup('You have reached the maximum of 3 stories. Please login to save unlimited stories, or delete an existing story.', 'warning')
       return
     }
 
@@ -138,13 +182,40 @@ function App() {
         opening_line: openingLine || null
       })
 
-      setStoryId(response.data.story_id)
-      setStory(response.data.story_text)
-      setOptions(response.data.options)
+      const newStoryId = response.data.story_id
+      const storyText = response.data.story_text
+      const storyOptions = response.data.options
+      
+      setStoryId(newStoryId)
+      setStory(storyText)
+      setOptions(storyOptions)
       setStage('story')
+      
+      // Save to localStorage if not authenticated
+      if (!isAuthenticated) {
+        const titleWords = storyText.split(' ').slice(0, 5).join(' ')
+        const title = titleWords.length < 50 ? titleWords + '...' : storyText.substring(0, 50) + '...'
+        
+        saveLocalStory({
+          id: newStoryId,
+          title: title,
+          genre: genre,
+          characters: characters,
+          opening_line: openingLine,
+          segments: [
+            {
+              text: storyText,
+              options: storyOptions,
+              chosen_option: null,
+              timestamp: new Date().toISOString()
+            }
+          ],
+          is_complete: false
+        })
+      }
     } catch (error) {
       console.error('Error starting story:', error)
-      alert('Error starting story. Please check if the backend is running.')
+      showPopup('Error starting story. Please check if the backend is running.', 'error')
     } finally {
       setLoading(false)
     }
@@ -159,11 +230,29 @@ function App() {
         chosen_option: chosenOption
       })
 
-      setStory(story + '\n\n' + response.data.story_text)
-      setOptions(response.data.options)
+      const newText = response.data.story_text
+      const newOptions = response.data.options
+      const updatedStory = story + '\n\n' + newText
+      
+      setStory(updatedStory)
+      setOptions(newOptions)
+      
+      // Update localStorage if not authenticated
+      if (!isAuthenticated && storyId) {
+        const localStory = getLocalStory(storyId)
+        if (localStory) {
+          localStory.segments.push({
+            text: newText,
+            options: newOptions,
+            chosen_option: chosenOption,
+            timestamp: new Date().toISOString()
+          })
+          saveLocalStory(localStory)
+        }
+      }
     } catch (error) {
       console.error('Error continuing story:', error)
-      alert('Error continuing story. Please try again.')
+      showPopup('Error continuing story. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
@@ -177,12 +266,30 @@ function App() {
         story_so_far: story
       })
 
-      setStory(story + '\n\n' + response.data.story_text)
+      const finalText = response.data.story_text
+      const completedStory = story + '\n\n' + finalText
+      
+      setStory(completedStory)
       setOptions([])
       setStage('ended')
+      
+      // Update localStorage if not authenticated
+      if (!isAuthenticated && storyId) {
+        const localStory = getLocalStory(storyId)
+        if (localStory) {
+          localStory.segments.push({
+            text: finalText,
+            options: [],
+            chosen_option: 'End Story',
+            timestamp: new Date().toISOString()
+          })
+          localStory.is_complete = true
+          saveLocalStory(localStory)
+        }
+      }
     } catch (error) {
       console.error('Error ending story:', error)
-      alert('Error ending story. Please try again.')
+      showPopup('Error ending story. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
@@ -201,10 +308,6 @@ function App() {
   }
 
   const switchToSavedView = () => {
-    if (!isAuthenticated) {
-      setShowAuthModal(true)
-      return
-    }
     setView('saved')
     loadSavedStories()
   }
@@ -229,6 +332,14 @@ function App() {
   return (
     <div className="App">
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      {errorPopup.message && (
+        <ErrorPopup 
+          message={errorPopup.message} 
+          type={errorPopup.type}
+          onClose={closePopup}
+          onConfirm={errorPopup.onConfirm}
+        />
+      )}
       
       <UserMenu onOpenAuth={() => setShowAuthModal(true)} />
       
@@ -257,6 +368,11 @@ function App() {
       {view === 'saved' && (
         <div className="saved-stories-container">
           <h2>Your Saved Stories</h2>
+          {!isAuthenticated && (
+            <div className="local-storage-notice">
+              <p>📦 Showing local stories (max 3). <button onClick={() => setShowAuthModal(true)} className="link-button">Login</button> to save unlimited stories!</p>
+            </div>
+          )}
           {savedStories.length === 0 ? (
             <div className="empty-state">
               <p>No saved stories yet. Create your first story!</p>
@@ -270,9 +386,14 @@ function App() {
                 <div key={storyItem.story_id} className="story-card">
                   <div className="story-card-header">
                     <h3>{storyItem.title}</h3>
-                    <span className={`status-badge ${storyItem.is_complete ? 'complete' : 'incomplete'}`}>
-                      {storyItem.is_complete ? '✓ Complete' : '📝 In Progress'}
-                    </span>
+                    <div className="story-badges">
+                      <span className={`status-badge ${storyItem.is_complete ? 'complete' : 'incomplete'}`}>
+                        {storyItem.is_complete ? '✓ Complete' : '📝 In Progress'}
+                      </span>
+                      {storyItem.isLocal && (
+                        <span className="local-badge" title="Stored locally">💾 Local</span>
+                      )}
+                    </div>
                   </div>
                   <div className="story-card-body">
                     <p className="story-genre">Genre: {storyItem.genre}</p>
@@ -285,13 +406,13 @@ function App() {
                   </div>
                   <div className="story-card-actions">
                     <button 
-                      onClick={() => loadStory(storyItem.story_id)} 
+                      onClick={() => loadStory(storyItem.story_id, storyItem.isLocal)} 
                       className="load-button"
                     >
                       {storyItem.is_complete ? '👁️ Read' : '▶️ Continue'}
                     </button>
                     <button 
-                      onClick={() => deleteStory(storyItem.story_id)} 
+                      onClick={() => deleteStory(storyItem.story_id, storyItem.isLocal)} 
                       className="delete-button"
                     >
                       🗑️ Delete
