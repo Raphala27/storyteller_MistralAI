@@ -283,7 +283,7 @@ def delete_story(story_id: str, user_id: str = Depends(get_current_user_id), db:
     return {"message": "Story deleted successfully"}
 
 @app.post("/start-story", response_model=StoryResponse)
-def start_story(story_start: StoryStart, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def start_story(story_start: StoryStart, user_id: Optional[str] = Depends(get_current_user_id_optional), db: Session = Depends(get_db)):
     """Start a new story based on user inputs"""
     try:
         # Build the prompt
@@ -359,8 +359,9 @@ OPTIONS:
             'user_id': user_id
         }
         
-        # Save story
-        postgres_storage.save_story(db, story_id, story_data)
+        # Save story to database only if user is authenticated
+        if user_id:
+            postgres_storage.save_story(db, story_id, story_data)
         
         return StoryResponse(
             story_text=story_text,
@@ -373,7 +374,7 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error generating story: {str(e)}")
 
 @app.post("/continue-story", response_model=StoryResponse)
-def continue_story(continuation: StoryContinuation, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def continue_story(continuation: StoryContinuation, user_id: Optional[str] = Depends(get_current_user_id_optional), db: Session = Depends(get_db)):
     """Continue the story based on the user's chosen option"""
     try:
         prompt = f"""You are continuing a story. Here's what has happened so far:
@@ -419,8 +420,8 @@ OPTIONS:
         # Parse the response
         story_text, options = parse_story_response(content)
         
-        # Update story if story_id is provided
-        if continuation.story_id:
+        # Update story in database only if user is authenticated
+        if continuation.story_id and user_id:
             story_data = postgres_storage.load_story(db, continuation.story_id, user_id=user_id)
             
             if story_data:
@@ -446,7 +447,7 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error continuing story: {str(e)}")
 
 @app.post("/end-story", response_model=StoryResponse)
-def end_story(story_end: StoryEnd, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def end_story(story_end: StoryEnd, user_id: Optional[str] = Depends(get_current_user_id_optional), db: Session = Depends(get_db)):
     """Generate an ending for the story"""
     try:
         prompt = f"""You are concluding a story. Here's what has happened so far:
@@ -483,8 +484,8 @@ STORY:
         else:
             story_text = content.strip()
         
-        # Update story if story_id is provided
-        if story_end.story_id:
+        # Update story in database only if user is authenticated
+        if story_end.story_id and user_id:
             story_data = postgres_storage.load_story(db, story_end.story_id, user_id=user_id)
             
             if story_data:
