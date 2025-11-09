@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import os
 import json
@@ -15,6 +15,15 @@ import uuid
 from database import get_db, init_db, close_db
 from sqlalchemy.orm import Session
 from storage_postgres import postgres_storage
+
+# Authentication imports
+from auth import (
+    create_access_token, 
+    get_current_user_id, 
+    get_current_user_id_optional, 
+    pwd_context
+)
+from models import User
 
 load_dotenv()
 
@@ -40,6 +49,25 @@ if not MISTRAL_API_KEY:
 mistral_client = MistralClient(api_key=MISTRAL_API_KEY)
 
 # Models
+class UserSignup(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class UserInfo(BaseModel):
+    user_id: str
+    username: str
+    email: str
+    created_at: str
+
 class StoryStart(BaseModel):
     genre: str
     characters: Optional[str] = None
@@ -113,6 +141,72 @@ OPENING_LINE_SUGGESTIONS = [
 def read_root():
     return {"message": "AI Story Generator API is running"}
 
+# Authentication endpoints
+@app.post("/signup", response_model=Token)
+def signup(user_data: UserSignup, db: Session = Depends(get_db)):
+    """Create a new user account"""
+    # Check if username already exists
+    existing_user = db.query(User).filter(User.username == user_data.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # Check if email already exists
+    existing_email = db.query(User).filter(User.email == user_data.email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create new user
+    user_id = str(uuid.uuid4())
+    hashed_password = pwd_context.hash(user_data.password)
+    
+    new_user = User(
+        user_id=user_id,
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_password,
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(new_user)
+    db.commit()
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user_id})
+    
+    return Token(access_token=access_token, token_type="bearer")
+
+@app.post("/login", response_model=Token)
+def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    """Login and get access token"""
+    # Find user by username
+    user = db.query(User).filter(User.username == credentials.username).first()
+    
+    if not user or not pwd_context.verify(credentials.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401, 
+            detail="Incorrect username or password"
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.user_id})
+    
+    return Token(access_token=access_token, token_type="bearer")
+
+@app.get("/me", response_model=UserInfo)
+def get_current_user(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Get current user information"""
+    user = db.query(User).filter(User.user_id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return UserInfo(
+        user_id=user.user_id,
+        username=user.username,
+        email=user.email,
+        created_at=user.created_at.isoformat()
+    )
+
 @app.get("/suggestions")
 async def get_suggestions():
     """Generate dynamic suggestions using MistralAI"""
@@ -167,29 +261,29 @@ Make them diverse, creative, and different from common examples. Return ONLY the
         }
 
 @app.get("/stories", response_model=List[StorySummary])
-def list_stories(db: Session = Depends(get_db)):
+def list_stories(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     """List all user stories"""
-    stories = postgres_storage.list_stories(db)
+    stories = postgres_storage.list_stories(db, user_id=user_id)
     return stories
 
 @app.get("/stories/{story_id}", response_model=StoryDetail)
-def get_story(story_id: str, db: Session = Depends(get_db)):
+def get_story(story_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     """Get a specific story by ID"""
-    story = postgres_storage.load_story(db, story_id)
+    story = postgres_storage.load_story(db, story_id, user_id=user_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     return story
 
 @app.delete("/stories/{story_id}")
-def delete_story(story_id: str, db: Session = Depends(get_db)):
+def delete_story(story_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     """Delete a story"""
-    success = postgres_storage.delete_story(db, story_id)
+    success = postgres_storage.delete_story(db, story_id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Story not found")
     return {"message": "Story deleted successfully"}
 
 @app.post("/start-story", response_model=StoryResponse)
-def start_story(story_start: StoryStart, db: Session = Depends(get_db)):
+def start_story(story_start: StoryStart, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     """Start a new story based on user inputs"""
     try:
         # Build the prompt
@@ -261,7 +355,8 @@ OPTIONS:
                 }
             ],
             'is_complete': False,
-            'created_at': datetime.now().isoformat()
+            'created_at': datetime.now().isoformat(),
+            'user_id': user_id
         }
         
         # Save story
@@ -278,7 +373,7 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error generating story: {str(e)}")
 
 @app.post("/continue-story", response_model=StoryResponse)
-def continue_story(continuation: StoryContinuation, db: Session = Depends(get_db)):
+def continue_story(continuation: StoryContinuation, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     """Continue the story based on the user's chosen option"""
     try:
         prompt = f"""You are continuing a story. Here's what has happened so far:
@@ -326,7 +421,7 @@ OPTIONS:
         
         # Update story if story_id is provided
         if continuation.story_id:
-            story_data = postgres_storage.load_story(db, continuation.story_id)
+            story_data = postgres_storage.load_story(db, continuation.story_id, user_id=user_id)
             
             if story_data:
                 # Add new segment
@@ -351,7 +446,7 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error continuing story: {str(e)}")
 
 @app.post("/end-story", response_model=StoryResponse)
-def end_story(story_end: StoryEnd, db: Session = Depends(get_db)):
+def end_story(story_end: StoryEnd, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     """Generate an ending for the story"""
     try:
         prompt = f"""You are concluding a story. Here's what has happened so far:
@@ -390,7 +485,7 @@ STORY:
         
         # Update story if story_id is provided
         if story_end.story_id:
-            story_data = postgres_storage.load_story(db, story_end.story_id)
+            story_data = postgres_storage.load_story(db, story_end.story_id, user_id=user_id)
             
             if story_data:
                 # Add final segment
