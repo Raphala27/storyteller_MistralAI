@@ -8,9 +8,26 @@
 brew install postgresql@14
 brew services start postgresql@14
 
-# Linux
+# Linux (Debian/Ubuntu)
 sudo apt-get install postgresql
 sudo systemctl start postgresql
+
+# Windows (PowerShell)
+# Option A: Install with Chocolatey (run as Administrator)
+choco install postgresql -y
+
+# Option B: Install with winget (Windows 10/11)
+winget install --id PostgreSQL.PostgreSQL -e
+
+# Option C: Use the official installer
+# Download & run: https://www.postgresql.org/download/windows/
+
+# Start the service (service name may vary; use Services UI if unsure)
+Start-Service postgresql-x64-14  # or use the actual service name shown in Services
+
+# Verify
+psql --version
+```
 ```
 
 ### 2. Create Database

@@ -13,15 +13,19 @@ An interactive storytelling application powered by MistralAI that generates crea
 - **Markdown Formatting**: Stories support **bold**, *italic*, and other markdown formatting for enhanced readability
 - **Modern UI**: Beautiful, responsive interface built with React
 - **Complete Stories**: Generate satisfying conclusions on demand
+- **🔒 Rate Limiting**: Production-ready rate limiting with Redis to protect API resources and prevent abuse
+- **👤 User Authentication**: JWT-based authentication with secure password hashing
 
 ## 🛠️ Tech Stack
 
 ### Backend
 - **FastAPI**: Modern Python web framework
 - **PostgreSQL**: Reliable database for story persistence
+- **Redis**: Rate limiting and caching layer
 - **SQLAlchemy 2.0**: Modern Python ORM with sync support
 - **psycopg3**: PostgreSQL adapter (Python 3.13 compatible)
 - **MistralAI SDK**: AI model integration for story generation
+- **JWT**: Secure authentication tokens
 - **Python 3.13**: Latest Python version
 
 ### Frontend
@@ -35,6 +39,7 @@ An interactive storytelling application powered by MistralAI that generates crea
 
 - Python 3.13 (or 3.11+)
 - PostgreSQL 14 or higher
+- Redis (optional, for rate limiting - see [Rate Limiting Setup](docs/RATE_LIMITING_QUICKSTART.md))
 - Node.js 16 or higher
 - npm or yarn
 - MistralAI API key (get one at [https://console.mistral.ai/](https://console.mistral.ai/))
@@ -173,18 +178,47 @@ Open your browser at `http://localhost:5173`
 - **[Getting Started](docs/POSTGRES_QUICKSTART.md)** - Quick start guide
 - **[Architecture](docs/ARCHITECTURE.md)** - Project structure and design
 - **[Database Guide](docs/DATABASE_README.md)** - PostgreSQL setup and usage
+- **[Rate Limiting Guide](docs/RATE_LIMITING.md)** - Complete rate limiting documentation
+- **[Rate Limiting Quick Start](docs/RATE_LIMITING_QUICKSTART.md)** - Quick Redis setup
+- **[Rate Limiting Config](docs/RATE_LIMITING_CONFIG.md)** - Configuration examples
 - **[Scripts Documentation](scripts/README.md)** - Available scripts and usage
+
+## 🔒 Rate Limiting
+
+This project implements **production-ready rate limiting** using Redis and the token bucket algorithm:
+
+- **AI Endpoints** (MistralAI calls): 2 req/sec for authenticated, 0.5 req/sec for anonymous
+- **API Endpoints**: 10 req/sec for authenticated, 5 req/sec for anonymous  
+- **Auth Endpoints**: 0.5 req/sec (brute force protection)
+
+### Quick Setup
+
+```powershell
+# Start Redis (Docker - easiest)
+docker run -d --name storyteller-redis -p 6379:6379 redis:7-alpine
+
+# Or use cloud Redis (Upstash, Render, etc.) - see docs
+```
+
+**Rate limiting will automatically disable if Redis is unavailable** - your app will still work!
+
+📖 **[Full Rate Limiting Documentation →](docs/RATE_LIMITING.md)**
 
 ## 🎯 API Endpoints
 
 - `GET /` - Health check
-- `GET /suggestions` - Get AI-generated suggestions
-- `POST /start-story` - Start a new story
-- `POST /continue-story` - Continue an existing story
-- `POST /end-story` - Generate an ending
-- `GET /stories` - List all saved stories
-- `GET /stories/{id}` - Get a specific story
-- `DELETE /stories/{id}` - Delete a story
+- `POST /signup` - Create user account 🔒
+- `POST /login` - User authentication 🔒
+- `GET /me` - Get current user info 🔒
+- `GET /suggestions` - Get AI-generated suggestions ⚡
+- `POST /start-story` - Start a new story ⚡
+- `POST /continue-story` - Continue an existing story ⚡
+- `POST /end-story` - Generate an ending ⚡
+- `GET /stories` - List all saved stories 🔒
+- `GET /stories/{id}` - Get a specific story 🔒
+- `DELETE /stories/{id}` - Delete a story 🔒
+
+Legend: 🔒 = Rate limited | ⚡ = AI endpoint (stricter limits)
 
 API Documentation available at: `http://localhost:8000/docs`
 

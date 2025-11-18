@@ -23,9 +23,30 @@ fi
 # Start backend
 echo -e "${GREEN}Starting Backend Server...${NC}"
 cd backend
-source venv/bin/activate 2>/dev/null || python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt > /dev/null 2>&1
-python main.py &
+
+# Check if venv exists, create if not
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python -m venv venv
+fi
+
+# Determine Python executable path (cross-platform)
+if [ -f "venv/Scripts/python.exe" ]; then
+    # Windows
+    PYTHON_BIN="venv/Scripts/python.exe"
+elif [ -f "venv/bin/python" ]; then
+    # Unix-like
+    PYTHON_BIN="venv/bin/python"
+else
+    echo "Error: Could not find Python in venv"
+    exit 1
+fi
+
+# Install dependencies if needed
+$PYTHON_BIN -m pip install -r requirements.txt > /dev/null 2>&1
+
+# Start backend using venv Python directly
+$PYTHON_BIN -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 cd ..
 

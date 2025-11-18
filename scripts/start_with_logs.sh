@@ -27,7 +27,24 @@ fi
 # Start backend with logs
 echo -e "${GREEN}Starting Backend Server...${NC}"
 cd backend
-source venv/bin/activate 2>/dev/null || python -m venv venv && source venv/bin/activate
+# Cross-platform venv activation
+if [ -f "venv/bin/activate" ]; then
+    # Unix-like (Linux, macOS, WSL, Git Bash)
+    . venv/bin/activate
+elif [ -f "venv/Scripts/activate" ]; then
+    # Windows (Git Bash may still use Scripts)
+    . venv/Scripts/activate
+elif [ -f "venv/pyvenv.cfg" ]; then
+    echo "Virtualenv exists but no known activate script found; continuing without activating."
+else
+    echo "No virtualenv found. Creating one..."
+    python -m venv venv
+    if [ -f "venv/bin/activate" ]; then
+        . venv/bin/activate
+    elif [ -f "venv/Scripts/activate" ]; then
+        . venv/Scripts/activate
+    fi
+fi
 pip install -r requirements.txt > /dev/null 2>&1
 uvicorn main:app --reload --host 0.0.0.0 --port 8000 > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!

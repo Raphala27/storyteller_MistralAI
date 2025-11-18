@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import os
 import json
 import re
+import sys
+import io
 from dotenv import load_dotenv
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
@@ -25,6 +27,14 @@ from auth import (
 )
 from models import User
 
+# Rate limiting imports
+from rate_limiter import rate_limit_ai, rate_limit_api, rate_limit_auth
+
+# Force UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    
 load_dotenv()
 
 # Initialize database on startup
@@ -143,8 +153,11 @@ def read_root():
 
 # Authentication endpoints
 @app.post("/signup", response_model=Token)
-def signup(user_data: UserSignup, db: Session = Depends(get_db)):
+async def signup(user_data: UserSignup, request: Request, db: Session = Depends(get_db)):
     """Create a new user account"""
+    # Rate limit auth endpoints to prevent abuse
+    await rate_limit_auth(request)
+    
     # Check if username already exists
     existing_user = db.query(User).filter(User.username == user_data.username).first()
     if existing_user:
@@ -176,8 +189,11 @@ def signup(user_data: UserSignup, db: Session = Depends(get_db)):
     return Token(access_token=access_token, token_type="bearer")
 
 @app.post("/login", response_model=Token)
-def login(credentials: UserLogin, db: Session = Depends(get_db)):
+async def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db)):
     """Login and get access token"""
+    # Rate limit auth endpoints to prevent brute force
+    await rate_limit_auth(request)
+    
     # Find user by username
     user = db.query(User).filter(User.username == credentials.username).first()
     
@@ -193,8 +209,15 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     return Token(access_token=access_token, token_type="bearer")
 
 @app.get("/me", response_model=UserInfo)
-def get_current_user(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def get_current_user(
+    request: Request,
+    user_id: str = Depends(get_current_user_id), 
+    db: Session = Depends(get_db)
+):
     """Get current user information"""
+    # Rate limit API endpoints
+    await rate_limit_api(request, user_id)
+    
     user = db.query(User).filter(User.user_id == user_id).first()
     
     if not user:
@@ -208,8 +231,11 @@ def get_current_user(user_id: str = Depends(get_current_user_id), db: Session = 
     )
 
 @app.get("/suggestions")
-async def get_suggestions():
+async def get_suggestions(request: Request, user_id: Optional[str] = Depends(get_current_user_id_optional)):
     """Generate dynamic suggestions using MistralAI"""
+    # Rate limit AI endpoints - this calls MistralAI API
+    await rate_limit_ai(request, user_id)
+    
     try:
         prompt = """Generate creative and diverse suggestions for starting a story. Return ONLY a valid JSON object with exactly this structure, no other text:
 
@@ -261,30 +287,61 @@ Make them diverse, creative, and different from common examples. Return ONLY the
         }
 
 @app.get("/stories", response_model=List[StorySummary])
-def list_stories(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def list_stories(
+    request: Request,
+    user_id: str = Depends(get_current_user_id), 
+    db: Session = Depends(get_db)
+):
     """List all user stories"""
+    # Rate limit API endpoints
+    await rate_limit_api(request, user_id)
+    
     stories = postgres_storage.list_stories(db, user_id=user_id)
     return stories
 
 @app.get("/stories/{story_id}", response_model=StoryDetail)
-def get_story(story_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def get_story(
+    story_id: str, 
+    request: Request,
+    user_id: str = Depends(get_current_user_id), 
+    db: Session = Depends(get_db)
+):
     """Get a specific story by ID"""
+    # Rate limit API endpoints
+    await rate_limit_api(request, user_id)
+    
     story = postgres_storage.load_story(db, story_id, user_id=user_id)
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     return story
 
 @app.delete("/stories/{story_id}")
-def delete_story(story_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+async def delete_story(
+    story_id: str, 
+    request: Request,
+    user_id: str = Depends(get_current_user_id), 
+    db: Session = Depends(get_db)
+):
     """Delete a story"""
+    # Rate limit API endpoints
+    await rate_limit_api(request, user_id)
+    
     success = postgres_storage.delete_story(db, story_id, user_id=user_id)
     if not success:
         raise HTTPException(status_code=404, detail="Story not found")
     return {"message": "Story deleted successfully"}
 
 @app.post("/start-story", response_model=StoryResponse)
-def start_story(story_start: StoryStart, user_id: Optional[str] = Depends(get_current_user_id_optional), db: Session = Depends(get_db)):
+async def start_story(
+    story_start: StoryStart, 
+    request: Request,
+    user_id: Optional[str] = Depends(get_current_user_id_optional), 
+    db: Session = Depends(get_db)
+):
     """Start a new story based on user inputs"""
+    # Rate limit AI endpoints - this is the most expensive operation
+    await rate_limit_ai(request, user_id)
+    
     try:
         # Build the prompt
         prompt = f"""You are a creative storyteller. Generate the opening paragraph of a story with the following details:
@@ -374,8 +431,16 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error generating story: {str(e)}")
 
 @app.post("/continue-story", response_model=StoryResponse)
-def continue_story(continuation: StoryContinuation, user_id: Optional[str] = Depends(get_current_user_id_optional), db: Session = Depends(get_db)):
+async def continue_story(
+    continuation: StoryContinuation, 
+    request: Request,
+    user_id: Optional[str] = Depends(get_current_user_id_optional), 
+    db: Session = Depends(get_db)
+):
     """Continue the story based on the user's chosen option"""
+    # Rate limit AI endpoints
+    await rate_limit_ai(request, user_id)
+    
     try:
         prompt = f"""You are continuing a story. Here's what has happened so far:
 
@@ -447,8 +512,16 @@ OPTIONS:
         raise HTTPException(status_code=500, detail=f"Error continuing story: {str(e)}")
 
 @app.post("/end-story", response_model=StoryResponse)
-def end_story(story_end: StoryEnd, user_id: Optional[str] = Depends(get_current_user_id_optional), db: Session = Depends(get_db)):
+async def end_story(
+    story_end: StoryEnd, 
+    request: Request,
+    user_id: Optional[str] = Depends(get_current_user_id_optional), 
+    db: Session = Depends(get_db)
+):
     """Generate an ending for the story"""
+    # Rate limit AI endpoints
+    await rate_limit_ai(request, user_id)
+    
     try:
         prompt = f"""You are concluding a story. Here's what has happened so far:
 

@@ -25,7 +25,7 @@ if DATABASE_URL:
 else:
     # Fallback to local PostgreSQL for development with psycopg3
     DATABASE_URL = "postgresql+psycopg://localhost/storyteller_db"
-    print("⚠️  DATABASE_URL not set, using local database")
+    print("DATABASE_URL not set, using local database")
 
 # Create sync engine (Python 3.13 compatible)
 engine = create_engine(
@@ -60,10 +60,10 @@ def get_db():
 def init_db():
     """Create all tables"""
     Base.metadata.create_all(bind=engine)
-    print("✅ Database tables created successfully")
+    print("Database tables created successfully")
 
 # Close database connection
 def close_db():
     """Close database connection"""
     engine.dispose()
-    print("✅ Database connection closed")
+    print("Database connection closed")
