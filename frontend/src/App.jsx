@@ -298,20 +298,19 @@ function App() {
           genre: genre,
           characters: characters,
           opening_line: openingLine,
-          segments: [
-            {
-              text: storyText,
-              options: storyOptions,
-              chosen_option: null,
-              timestamp: new Date().toISOString()
-            }
-          ],
-          is_complete: false
+          segments: [{
+            text: storyText,
+            options: storyOptions,
+            chosen_option: null,
+            timestamp: new Date().toISOString()
+          }],
+          is_complete: false,
+          created_at: new Date().toISOString()
         })
       }
     } catch (error) {
       console.error('Error starting story:', error)
-      showPopup('Error starting story. Please check if the backend is running.', 'error')
+      showPopup('Error starting story. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
@@ -319,6 +318,8 @@ function App() {
 
   const continueStory = async (chosenOption) => {
     setLoading(true)
+    const existingStory = story
+    
     try {
       const response = await axios.post(`${API_URL}/continue-story`, {
         story_id: storyId,
@@ -328,9 +329,8 @@ function App() {
 
       const newText = response.data.story_text
       const newOptions = response.data.options
-      const updatedStory = story + '\n\n' + newText
       
-      setStory(updatedStory)
+      setStory(existingStory + '\n\n' + newText)
       setOptions(newOptions)
       
       // Update localStorage if not authenticated
@@ -356,6 +356,8 @@ function App() {
 
   const endStory = async () => {
     setLoading(true)
+    const existingStory = story
+    
     try {
       const response = await axios.post(`${API_URL}/end-story`, {
         story_id: storyId,
@@ -363,9 +365,8 @@ function App() {
       })
 
       const finalText = response.data.story_text
-      const completedStory = story + '\n\n' + finalText
       
-      setStory(completedStory)
+      setStory(existingStory + '\n\n' + finalText)
       setOptions([])
       setStage('ended')
       
@@ -622,20 +623,27 @@ function App() {
 
       {view === 'new' && stage === 'story' && (
         <div className="story-container">
-          <div className="story-text">
-            {story.split('\n\n').map((paragraph, index) => (
-              <div key={index} className="paragraph">
-                <ReactMarkdown>{paragraph}</ReactMarkdown>
-              </div>
-            ))}
-          </div>
+          {story ? (
+            <div className="story-text">
+              {story.split('\n\n').map((paragraph, index) => (
+                <div key={index} className="paragraph">
+                  <ReactMarkdown>{paragraph}</ReactMarkdown>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="loading">
+              <div className="spinner"></div>
+              <p>Starting your story...</p>
+            </div>
+          )}
 
-          {loading ? (
+          {loading && story ? (
             <div className="loading">
               <div className="spinner"></div>
               <p>Generating next part...</p>
             </div>
-          ) : (
+          ) : !loading && options.length > 0 ? (
             <div className="options-container">
               <h3>What happens next?</h3>
               <div className="options">
@@ -658,10 +666,9 @@ function App() {
                 </button>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
-
       {view === 'new' && stage === 'ended' && (
         <div className="story-container">
           <div className="story-text">
