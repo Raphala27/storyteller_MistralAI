@@ -38,15 +38,109 @@ function App() {
     characters: [],
     opening_lines: []
   })
+  const [manualRefreshesLeft, setManualRefreshesLeft] = useState(3)
+
+  // Constants for suggestion caching
+  const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in milliseconds
+  const MAX_DAILY_REFRESHES = 3
+
+  // Get cached suggestions from localStorage
+  const getCachedSuggestions = () => {
+    try {
+      const cached = localStorage.getItem('suggestions_cache')
+      if (!cached) return null
+      
+      const { data, timestamp } = JSON.parse(cached)
+      const now = Date.now()
+      
+      // Check if cache is still valid (within 5 minutes)
+      if (now - timestamp < CACHE_DURATION) {
+        return data
+      }
+      return null
+    } catch (error) {
+      console.error('Error reading cached suggestions:', error)
+      return null
+    }
+  }
+
+  // Save suggestions to cache
+  const cacheSuggestions = (data) => {
+    try {
+      localStorage.setItem('suggestions_cache', JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }))
+    } catch (error) {
+      console.error('Error caching suggestions:', error)
+    }
+  }
+
+  // Get today's refresh count
+  const getDailyRefreshData = () => {
+    try {
+      const stored = localStorage.getItem('suggestions_refresh_count')
+      if (!stored) return { count: 0, date: new Date().toDateString() }
+      
+      const { count, date } = JSON.parse(stored)
+      const today = new Date().toDateString()
+      
+      // Reset count if it's a new day
+      if (date !== today) {
+        return { count: 0, date: today }
+      }
+      return { count, date }
+    } catch (error) {
+      console.error('Error reading refresh count:', error)
+      return { count: 0, date: new Date().toDateString() }
+    }
+  }
+
+  // Increment refresh count
+  const incrementRefreshCount = () => {
+    const { count, date } = getDailyRefreshData()
+    const newCount = count + 1
+    localStorage.setItem('suggestions_refresh_count', JSON.stringify({
+      count: newCount,
+      date
+    }))
+    setManualRefreshesLeft(MAX_DAILY_REFRESHES - newCount)
+    return newCount
+  }
 
   // Fetch suggestions from AI
-  const loadSuggestions = async () => {
+  const loadSuggestions = async (isManual = false) => {
+    // Check cache first
+    const cached = getCachedSuggestions()
+    if (cached && !isManual) {
+      setSuggestions(cached)
+      return
+    }
+
+    // Check daily limit for manual refreshes
+    if (isManual) {
+      const { count } = getDailyRefreshData()
+      if (count >= MAX_DAILY_REFRESHES) {
+        showPopup(
+          `You've reached your daily limit of ${MAX_DAILY_REFRESHES} manual refreshes. Suggestions will auto-refresh every 5 minutes.`,
+          'warning'
+        )
+        return
+      }
+    }
+
     setLoadingSuggestions(true)
     try {
       const response = await axios.get(`${API_URL}/suggestions`)
       setSuggestions(response.data)
+      cacheSuggestions(response.data)
+      
+      if (isManual) {
+        incrementRefreshCount()
+      }
     } catch (error) {
       console.error('Error fetching suggestions:', error)
+      showPopup('Failed to load suggestions. Please try again later.', 'error')
     } finally {
       setLoadingSuggestions(false)
     }
@@ -61,9 +155,11 @@ function App() {
     setErrorPopup({ message: '', type: 'error', onConfirm: null })
   }
 
-  // Load suggestions on mount
+  // Load suggestions on mount and update refresh count display
   useEffect(() => {
-    loadSuggestions()
+    loadSuggestions(false) // Auto-load on mount (not manual)
+    const { count } = getDailyRefreshData()
+    setManualRefreshesLeft(MAX_DAILY_REFRESHES - count)
   }, [])
 
   // Fetch saved stories when switching to saved view
@@ -303,8 +399,7 @@ function App() {
     setOpeningLine('')
     setStory('')
     setOptions([])
-    // Reload suggestions for a fresh start
-    loadSuggestions()
+    // Don't reload suggestions automatically - use cache or manual refresh
   }
 
   const switchToSavedView = () => {
@@ -430,12 +525,19 @@ function App() {
           <div className="suggestions-header">
             <h3>✨ Get Inspired</h3>
             <button 
-              onClick={loadSuggestions} 
-              disabled={loadingSuggestions}
+              onClick={() => loadSuggestions(true)} // Manual refresh
+              disabled={loadingSuggestions || manualRefreshesLeft === 0}
               className="refresh-suggestions-button"
-              title="Generate new suggestions"
+              title={
+                manualRefreshesLeft === 0 
+                  ? 'Daily limit reached. Auto-refreshes every 5 min' 
+                  : `Generate new suggestions (${manualRefreshesLeft} left today)`
+              }
             >
-              {loadingSuggestions ? '🔄 Generating...' : '🔄 New Suggestions'}
+              {loadingSuggestions 
+                ? '🔄 Generating...' 
+                : `🔄 New Suggestions (${manualRefreshesLeft}/3)`
+              }
             </button>
           </div>
 
