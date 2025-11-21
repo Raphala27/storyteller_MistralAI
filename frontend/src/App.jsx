@@ -38,15 +38,109 @@ function App() {
     characters: [],
     opening_lines: []
   })
+  const [manualRefreshesLeft, setManualRefreshesLeft] = useState(3)
+
+  // Constants for suggestion caching
+  const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in milliseconds
+  const MAX_DAILY_REFRESHES = 3
+
+  // Get cached suggestions from localStorage
+  const getCachedSuggestions = () => {
+    try {
+      const cached = localStorage.getItem('suggestions_cache')
+      if (!cached) return null
+      
+      const { data, timestamp } = JSON.parse(cached)
+      const now = Date.now()
+      
+      // Check if cache is still valid (within 5 minutes)
+      if (now - timestamp < CACHE_DURATION) {
+        return data
+      }
+      return null
+    } catch (error) {
+      console.error('Error reading cached suggestions:', error)
+      return null
+    }
+  }
+
+  // Save suggestions to cache
+  const cacheSuggestions = (data) => {
+    try {
+      localStorage.setItem('suggestions_cache', JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }))
+    } catch (error) {
+      console.error('Error caching suggestions:', error)
+    }
+  }
+
+  // Get today's refresh count
+  const getDailyRefreshData = () => {
+    try {
+      const stored = localStorage.getItem('suggestions_refresh_count')
+      if (!stored) return { count: 0, date: new Date().toDateString() }
+      
+      const { count, date } = JSON.parse(stored)
+      const today = new Date().toDateString()
+      
+      // Reset count if it's a new day
+      if (date !== today) {
+        return { count: 0, date: today }
+      }
+      return { count, date }
+    } catch (error) {
+      console.error('Error reading refresh count:', error)
+      return { count: 0, date: new Date().toDateString() }
+    }
+  }
+
+  // Increment refresh count
+  const incrementRefreshCount = () => {
+    const { count, date } = getDailyRefreshData()
+    const newCount = count + 1
+    localStorage.setItem('suggestions_refresh_count', JSON.stringify({
+      count: newCount,
+      date
+    }))
+    setManualRefreshesLeft(MAX_DAILY_REFRESHES - newCount)
+    return newCount
+  }
 
   // Fetch suggestions from AI
-  const loadSuggestions = async () => {
+  const loadSuggestions = async (isManual = false) => {
+    // Check cache first
+    const cached = getCachedSuggestions()
+    if (cached && !isManual) {
+      setSuggestions(cached)
+      return
+    }
+
+    // Check daily limit for manual refreshes
+    if (isManual) {
+      const { count } = getDailyRefreshData()
+      if (count >= MAX_DAILY_REFRESHES) {
+        showPopup(
+          `You've reached your daily limit of ${MAX_DAILY_REFRESHES} manual refreshes. Suggestions will auto-refresh every 5 minutes.`,
+          'warning'
+        )
+        return
+      }
+    }
+
     setLoadingSuggestions(true)
     try {
       const response = await axios.get(`${API_URL}/suggestions`)
       setSuggestions(response.data)
+      cacheSuggestions(response.data)
+      
+      if (isManual) {
+        incrementRefreshCount()
+      }
     } catch (error) {
       console.error('Error fetching suggestions:', error)
+      showPopup('Failed to load suggestions. Please try again later.', 'error')
     } finally {
       setLoadingSuggestions(false)
     }
@@ -61,9 +155,11 @@ function App() {
     setErrorPopup({ message: '', type: 'error', onConfirm: null })
   }
 
-  // Load suggestions on mount
+  // Load suggestions on mount and update refresh count display
   useEffect(() => {
-    loadSuggestions()
+    loadSuggestions(false) // Auto-load on mount (not manual)
+    const { count } = getDailyRefreshData()
+    setManualRefreshesLeft(MAX_DAILY_REFRESHES - count)
   }, [])
 
   // Fetch saved stories when switching to saved view
@@ -175,47 +271,102 @@ function App() {
     }
 
     setLoading(true)
+    setStory('')
+    setOptions([])
+    setStage('story') // Switch to story view immediately
+    
     try {
-      const response = await axios.post(`${API_URL}/start-story`, {
-        genre,
-        characters: characters || null,
-        opening_line: openingLine || null
+      const token = localStorage.getItem('token')
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      const response = await fetch(`${API_URL}/start-story`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          genre,
+          characters: characters || null,
+          opening_line: openingLine || null
+        })
       })
 
-      const newStoryId = response.data.story_id
-      const storyText = response.data.story_text
-      const storyOptions = response.data.options
-      
-      setStoryId(newStoryId)
-      setStory(storyText)
-      setOptions(storyOptions)
-      setStage('story')
-      
-      // Save to localStorage if not authenticated
-      if (!isAuthenticated) {
-        const titleWords = storyText.split(' ').slice(0, 5).join(' ')
-        const title = titleWords.length < 50 ? titleWords + '...' : storyText.substring(0, 50) + '...'
-        
-        saveLocalStory({
-          id: newStoryId,
-          title: title,
-          genre: genre,
-          characters: characters,
-          opening_line: openingLine,
-          segments: [
-            {
-              text: storyText,
-              options: storyOptions,
-              chosen_option: null,
-              timestamp: new Date().toISOString()
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let currentStoryId = null
+      let accumulatedText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'story_id') {
+                currentStoryId = data.story_id
+                setStoryId(currentStoryId)
+              } else if (data.type === 'content') {
+                accumulatedText += data.content
+                // Filter to show only the STORY part, not OPTIONS
+                const storyOnly = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                setStory(storyOnly)
+              } else if (data.type === 'complete') {
+                setOptions(data.options)
+                
+                // Parse final story text
+                const finalStoryText = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                
+                // Save to localStorage if not authenticated
+                if (!isAuthenticated && currentStoryId) {
+                  const titleWords = finalStoryText.split(' ').slice(0, 5).join(' ')
+                  const title = titleWords.length < 50 ? titleWords + '...' : finalStoryText.substring(0, 50) + '...'
+                  
+                  saveLocalStory({
+                    id: currentStoryId,
+                    title: title,
+                    genre: genre,
+                    characters: characters,
+                    opening_line: openingLine,
+                    segments: [{
+                      text: finalStoryText,
+                      options: data.options,
+                      chosen_option: null,
+                      timestamp: new Date().toISOString()
+                    }],
+                    is_complete: false,
+                    created_at: new Date().toISOString()
+                  })
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.message)
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError)
             }
-          ],
-          is_complete: false
-        })
+          }
+        }
       }
     } catch (error) {
       console.error('Error starting story:', error)
-      showPopup('Error starting story. Please check if the backend is running.', 'error')
+      showPopup('Error starting story. Please try again.', 'error')
+      setStage('input') // Go back to input on error
     } finally {
       setLoading(false)
     }
@@ -223,31 +374,82 @@ function App() {
 
   const continueStory = async (chosenOption) => {
     setLoading(true)
+    const existingStory = story
+    
     try {
-      const response = await axios.post(`${API_URL}/continue-story`, {
-        story_id: storyId,
-        story_so_far: story,
-        chosen_option: chosenOption
+      const token = localStorage.getItem('token')
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      const response = await fetch(`${API_URL}/continue-story`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          story_id: storyId,
+          story_so_far: story,
+          chosen_option: chosenOption
+        })
       })
 
-      const newText = response.data.story_text
-      const newOptions = response.data.options
-      const updatedStory = story + '\n\n' + newText
-      
-      setStory(updatedStory)
-      setOptions(newOptions)
-      
-      // Update localStorage if not authenticated
-      if (!isAuthenticated && storyId) {
-        const localStory = getLocalStory(storyId)
-        if (localStory) {
-          localStory.segments.push({
-            text: newText,
-            options: newOptions,
-            chosen_option: chosenOption,
-            timestamp: new Date().toISOString()
-          })
-          saveLocalStory(localStory)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'content') {
+                accumulatedText += data.content
+                // Filter to show only the STORY part
+                const storyOnly = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                setStory(existingStory + '\n\n' + storyOnly)
+              } else if (data.type === 'complete') {
+                setOptions(data.options)
+                
+                // Parse final continuation text
+                const finalContinuationText = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                
+                // Update localStorage if not authenticated
+                if (!isAuthenticated && storyId) {
+                  const localStory = getLocalStory(storyId)
+                  if (localStory) {
+                    localStory.segments.push({
+                      text: finalContinuationText,
+                      options: data.options,
+                      chosen_option: chosenOption,
+                      timestamp: new Date().toISOString()
+                    })
+                    saveLocalStory(localStory)
+                  }
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.message)
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError)
+            }
+          }
         }
       }
     } catch (error) {
@@ -260,31 +462,83 @@ function App() {
 
   const endStory = async () => {
     setLoading(true)
+    const existingStory = story
+    
     try {
-      const response = await axios.post(`${API_URL}/end-story`, {
-        story_id: storyId,
-        story_so_far: story
+      const token = localStorage.getItem('token')
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      const response = await fetch(`${API_URL}/end-story`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          story_id: storyId,
+          story_so_far: story
+        })
       })
 
-      const finalText = response.data.story_text
-      const completedStory = story + '\n\n' + finalText
-      
-      setStory(completedStory)
-      setOptions([])
-      setStage('ended')
-      
-      // Update localStorage if not authenticated
-      if (!isAuthenticated && storyId) {
-        const localStory = getLocalStory(storyId)
-        if (localStory) {
-          localStory.segments.push({
-            text: finalText,
-            options: [],
-            chosen_option: 'End Story',
-            timestamp: new Date().toISOString()
-          })
-          localStory.is_complete = true
-          saveLocalStory(localStory)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'content') {
+                accumulatedText += data.content
+                // Filter to show only the STORY part
+                const storyOnly = accumulatedText.replace('STORY:', '').trim()
+                setStory(existingStory + '\n\n' + storyOnly)
+              } else if (data.type === 'complete') {
+                setOptions([])
+                setStage('ended')
+                
+                // Parse final ending text
+                const finalEndingText = accumulatedText.replace('STORY:', '').trim()
+                
+                // Update localStorage if not authenticated
+                if (!isAuthenticated && storyId) {
+                  const localStory = getLocalStory(storyId)
+                  if (localStory) {
+                    localStory.segments.push({
+                      text: finalEndingText,
+                      options: [],
+                      chosen_option: 'End Story',
+                      timestamp: new Date().toISOString()
+                    })
+                    localStory.is_complete = true
+                    saveLocalStory(localStory)
+                  }
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.message)
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError)
+            }
+          }
         }
       }
     } catch (error) {
@@ -303,8 +557,7 @@ function App() {
     setOpeningLine('')
     setStory('')
     setOptions([])
-    // Reload suggestions for a fresh start
-    loadSuggestions()
+    // Don't reload suggestions automatically - use cache or manual refresh
   }
 
   const switchToSavedView = () => {
@@ -430,12 +683,19 @@ function App() {
           <div className="suggestions-header">
             <h3>✨ Get Inspired</h3>
             <button 
-              onClick={loadSuggestions} 
-              disabled={loadingSuggestions}
+              onClick={() => loadSuggestions(true)} // Manual refresh
+              disabled={loadingSuggestions || manualRefreshesLeft === 0}
               className="refresh-suggestions-button"
-              title="Generate new suggestions"
+              title={
+                manualRefreshesLeft === 0 
+                  ? 'Daily limit reached. Auto-refreshes every 5 min' 
+                  : `Generate new suggestions (${manualRefreshesLeft} left today)`
+              }
             >
-              {loadingSuggestions ? '🔄 Generating...' : '🔄 New Suggestions'}
+              {loadingSuggestions 
+                ? '🔄 Generating...' 
+                : `🔄 New Suggestions (${manualRefreshesLeft}/3)`
+              }
             </button>
           </div>
 
@@ -520,20 +780,27 @@ function App() {
 
       {view === 'new' && stage === 'story' && (
         <div className="story-container">
-          <div className="story-text">
-            {story.split('\n\n').map((paragraph, index) => (
-              <div key={index} className="paragraph">
-                <ReactMarkdown>{paragraph}</ReactMarkdown>
-              </div>
-            ))}
-          </div>
+          {story ? (
+            <div className="story-text">
+              {story.split('\n\n').map((paragraph, index) => (
+                <div key={index} className="paragraph">
+                  <ReactMarkdown>{paragraph}</ReactMarkdown>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="loading">
+              <div className="spinner"></div>
+              <p>Starting your story...</p>
+            </div>
+          )}
 
-          {loading ? (
+          {loading && story ? (
             <div className="loading">
               <div className="spinner"></div>
               <p>Generating next part...</p>
             </div>
-          ) : (
+          ) : !loading && options.length > 0 ? (
             <div className="options-container">
               <h3>What happens next?</h3>
               <div className="options">
@@ -556,10 +823,9 @@ function App() {
                 </button>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
-
       {view === 'new' && stage === 'ended' && (
         <div className="story-container">
           <div className="story-text">
