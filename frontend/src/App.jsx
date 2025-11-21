@@ -271,46 +271,102 @@ function App() {
     }
 
     setLoading(true)
+    setStory('')
+    setOptions([])
+    setStage('story') // Switch to story view immediately
+    
     try {
-      const response = await axios.post(`${API_URL}/start-story`, {
-        genre,
-        characters: characters || null,
-        opening_line: openingLine || null
+      const token = localStorage.getItem('token')
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      const response = await fetch(`${API_URL}/start-story`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          genre,
+          characters: characters || null,
+          opening_line: openingLine || null
+        })
       })
 
-      const newStoryId = response.data.story_id
-      const storyText = response.data.story_text
-      const storyOptions = response.data.options
-      
-      setStoryId(newStoryId)
-      setStory(storyText)
-      setOptions(storyOptions)
-      setStage('story')
-      
-      // Save to localStorage if not authenticated
-      if (!isAuthenticated) {
-        const titleWords = storyText.split(' ').slice(0, 5).join(' ')
-        const title = titleWords.length < 50 ? titleWords + '...' : storyText.substring(0, 50) + '...'
-        
-        saveLocalStory({
-          id: newStoryId,
-          title: title,
-          genre: genre,
-          characters: characters,
-          opening_line: openingLine,
-          segments: [{
-            text: storyText,
-            options: storyOptions,
-            chosen_option: null,
-            timestamp: new Date().toISOString()
-          }],
-          is_complete: false,
-          created_at: new Date().toISOString()
-        })
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let currentStoryId = null
+      let accumulatedText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'story_id') {
+                currentStoryId = data.story_id
+                setStoryId(currentStoryId)
+              } else if (data.type === 'content') {
+                accumulatedText += data.content
+                // Filter to show only the STORY part, not OPTIONS
+                const storyOnly = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                setStory(storyOnly)
+              } else if (data.type === 'complete') {
+                setOptions(data.options)
+                
+                // Parse final story text
+                const finalStoryText = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                
+                // Save to localStorage if not authenticated
+                if (!isAuthenticated && currentStoryId) {
+                  const titleWords = finalStoryText.split(' ').slice(0, 5).join(' ')
+                  const title = titleWords.length < 50 ? titleWords + '...' : finalStoryText.substring(0, 50) + '...'
+                  
+                  saveLocalStory({
+                    id: currentStoryId,
+                    title: title,
+                    genre: genre,
+                    characters: characters,
+                    opening_line: openingLine,
+                    segments: [{
+                      text: finalStoryText,
+                      options: data.options,
+                      chosen_option: null,
+                      timestamp: new Date().toISOString()
+                    }],
+                    is_complete: false,
+                    created_at: new Date().toISOString()
+                  })
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.message)
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError)
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error starting story:', error)
       showPopup('Error starting story. Please try again.', 'error')
+      setStage('input') // Go back to input on error
     } finally {
       setLoading(false)
     }
@@ -321,29 +377,79 @@ function App() {
     const existingStory = story
     
     try {
-      const response = await axios.post(`${API_URL}/continue-story`, {
-        story_id: storyId,
-        story_so_far: story,
-        chosen_option: chosenOption
+      const token = localStorage.getItem('token')
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      const response = await fetch(`${API_URL}/continue-story`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          story_id: storyId,
+          story_so_far: story,
+          chosen_option: chosenOption
+        })
       })
 
-      const newText = response.data.story_text
-      const newOptions = response.data.options
-      
-      setStory(existingStory + '\n\n' + newText)
-      setOptions(newOptions)
-      
-      // Update localStorage if not authenticated
-      if (!isAuthenticated && storyId) {
-        const localStory = getLocalStory(storyId)
-        if (localStory) {
-          localStory.segments.push({
-            text: newText,
-            options: newOptions,
-            chosen_option: chosenOption,
-            timestamp: new Date().toISOString()
-          })
-          saveLocalStory(localStory)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'content') {
+                accumulatedText += data.content
+                // Filter to show only the STORY part
+                const storyOnly = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                setStory(existingStory + '\n\n' + storyOnly)
+              } else if (data.type === 'complete') {
+                setOptions(data.options)
+                
+                // Parse final continuation text
+                const finalContinuationText = accumulatedText.split('OPTIONS:')[0].replace('STORY:', '').trim()
+                
+                // Update localStorage if not authenticated
+                if (!isAuthenticated && storyId) {
+                  const localStory = getLocalStory(storyId)
+                  if (localStory) {
+                    localStory.segments.push({
+                      text: finalContinuationText,
+                      options: data.options,
+                      chosen_option: chosenOption,
+                      timestamp: new Date().toISOString()
+                    })
+                    saveLocalStory(localStory)
+                  }
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.message)
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError)
+            }
+          }
         }
       }
     } catch (error) {
@@ -359,29 +465,80 @@ function App() {
     const existingStory = story
     
     try {
-      const response = await axios.post(`${API_URL}/end-story`, {
-        story_id: storyId,
-        story_so_far: story
+      const token = localStorage.getItem('token')
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+      
+      const response = await fetch(`${API_URL}/end-story`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          story_id: storyId,
+          story_so_far: story
+        })
       })
 
-      const finalText = response.data.story_text
-      
-      setStory(existingStory + '\n\n' + finalText)
-      setOptions([])
-      setStage('ended')
-      
-      // Update localStorage if not authenticated
-      if (!isAuthenticated && storyId) {
-        const localStory = getLocalStory(storyId)
-        if (localStory) {
-          localStory.segments.push({
-            text: finalText,
-            options: [],
-            chosen_option: 'End Story',
-            timestamp: new Date().toISOString()
-          })
-          localStory.is_complete = true
-          saveLocalStory(localStory)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulatedText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.type === 'content') {
+                accumulatedText += data.content
+                // Filter to show only the STORY part
+                const storyOnly = accumulatedText.replace('STORY:', '').trim()
+                setStory(existingStory + '\n\n' + storyOnly)
+              } else if (data.type === 'complete') {
+                setOptions([])
+                setStage('ended')
+                
+                // Parse final ending text
+                const finalEndingText = accumulatedText.replace('STORY:', '').trim()
+                
+                // Update localStorage if not authenticated
+                if (!isAuthenticated && storyId) {
+                  const localStory = getLocalStory(storyId)
+                  if (localStory) {
+                    localStory.segments.push({
+                      text: finalEndingText,
+                      options: [],
+                      chosen_option: 'End Story',
+                      timestamp: new Date().toISOString()
+                    })
+                    localStory.is_complete = true
+                    saveLocalStory(localStory)
+                  }
+                }
+              } else if (data.type === 'error') {
+                throw new Error(data.message)
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError)
+            }
+          }
         }
       }
     } catch (error) {

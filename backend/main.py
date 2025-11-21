@@ -334,28 +334,29 @@ async def delete_story(
         raise HTTPException(status_code=404, detail="Story not found")
     return {"message": "Story deleted successfully"}
 
-@app.post("/start-story", response_model=StoryResponse)
+@app.post("/start-story")
 async def start_story(
     story_start: StoryStart, 
     request: Request,
     user_id: Optional[str] = Depends(get_current_user_id_optional), 
     db: Session = Depends(get_db)
 ):
-    """Start a new story based on user inputs"""
+    """Start a new story based on user inputs with streaming"""
     # Rate limit AI endpoints - this is the most expensive operation
     await rate_limit_ai(request, user_id)
     
-    try:
-        # Build the prompt
-        prompt = f"""You are a creative storyteller. Generate the opening paragraph of a story with the following details:
+    async def generate_stream():
+        try:
+            # Build the prompt
+            prompt = f"""You are a creative storyteller. Generate the opening paragraph of a story with the following details:
 Genre: {story_start.genre}
 """
-        if story_start.characters:
-            prompt += f"Characters: {story_start.characters}\n"
-        if story_start.opening_line:
-            prompt += f"Opening line: {story_start.opening_line}\n"
-        
-        prompt += """\nWrite a compelling opening paragraph (10-15 sentences) that sets the scene and hooks the reader. Build atmosphere, introduce key elements naturally, and create vivid imagery.
+            if story_start.characters:
+                prompt += f"Characters: {story_start.characters}\n"
+            if story_start.opening_line:
+                prompt += f"Opening line: {story_start.opening_line}\n"
+            
+            prompt += """\nWrite a compelling opening paragraph (10-15 sentences) that sets the scene and hooks the reader. Build atmosphere, introduce key elements naturally, and create vivid imagery.
 
 IMPORTANT: The story paragraph MUST be at least 10-15 complete sentences. Write a full, detailed, immersive opening that develops the scene thoroughly. Do NOT write just 2-3 short paragraphs - expand the story with rich details, character thoughts, atmospheric descriptions, and plot development.
 
@@ -376,76 +377,86 @@ OPTIONS:
 2. [Short option - 5-7 words]
 3. [Short option - 5-7 words]"""
 
-        messages = [
-            ChatMessage(role="user", content=prompt)
-        ]
+            messages = [
+                ChatMessage(role="user", content=prompt)
+            ]
 
-        response = mistral_client.chat(
-            model="mistral-small-latest",
-            messages=messages,
-            temperature=0.8,
-            max_tokens=2000
-        )
-
-        content = response.choices[0].message.content
-        
-        # Parse the response
-        story_text, options = parse_story_response(content)
-        
-        # Generate story ID and save
-        story_id = story_start.story_id or str(uuid.uuid4())
-        
-        # Generate title from genre and first few words
-        title_words = story_text.split()[:5]
-        title = ' '.join(title_words) + '...' if len(title_words) == 5 else story_text[:50] + '...'
-        
-        # Create story data
-        story_data = {
-            'id': story_id,
-            'title': title,
-            'genre': story_start.genre,
-            'characters': story_start.characters,
-            'opening_line': story_start.opening_line,
-            'segments': [
-                {
-                    'text': story_text,
-                    'options': options,
-                    'chosen_option': None,
-                    'timestamp': datetime.now().isoformat()
-                }
-            ],
-            'is_complete': False,
-            'created_at': datetime.now().isoformat(),
-            'user_id': user_id
-        }
-        
-        # Save story to database only if user is authenticated
-        if user_id:
-            postgres_storage.save_story(db, story_id, story_data)
-        
-        return StoryResponse(
-            story_text=story_text,
-            options=options,
-            is_complete=False,
-            story_id=story_id
-        )
+            # Generate story ID first
+            story_id = story_start.story_id or str(uuid.uuid4())
+            
+            # Send story_id immediately
+            yield f"data: {json.dumps({'type': 'story_id', 'story_id': story_id})}\n\n"
+            
+            # Stream the response
+            accumulated_content = ""
+            
+            stream_response = mistral_client.chat_stream(
+                model="mistral-small-latest",
+                messages=messages,
+                temperature=0.8,
+                max_tokens=2000
+            )
+            
+            for chunk in stream_response:
+                if hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        accumulated_content += delta.content
+                        yield f"data: {json.dumps({'type': 'content', 'content': delta.content})}\n\n"
+            
+            # Parse the complete response
+            story_text, options = parse_story_response(accumulated_content)
+            
+            # Generate title from genre and first few words
+            title_words = story_text.split()[:5]
+            title = ' '.join(title_words) + '...' if len(title_words) == 5 else story_text[:50] + '...'
+            
+            # Create story data
+            story_data = {
+                'id': story_id,
+                'title': title,
+                'genre': story_start.genre,
+                'characters': story_start.characters,
+                'opening_line': story_start.opening_line,
+                'segments': [
+                    {
+                        'text': story_text,
+                        'options': options,
+                        'chosen_option': None,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                ],
+                'is_complete': False,
+                'created_at': datetime.now().isoformat(),
+                'user_id': user_id
+            }
+            
+            # Save story to database only if user is authenticated
+            if user_id:
+                postgres_storage.save_story(db, story_id, story_data)
+            
+            # Send completion with options
+            yield f"data: {json.dumps({'type': 'complete', 'options': options, 'story_id': story_id})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating story: {str(e)}")
+    return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
-@app.post("/continue-story", response_model=StoryResponse)
+@app.post("/continue-story")
 async def continue_story(
     continuation: StoryContinuation, 
     request: Request,
     user_id: Optional[str] = Depends(get_current_user_id_optional), 
     db: Session = Depends(get_db)
 ):
-    """Continue the story based on the user's chosen option"""
+    """Continue the story based on the user's chosen option with streaming"""
     # Rate limit AI endpoints
     await rate_limit_ai(request, user_id)
     
-    try:
-        prompt = f"""You are continuing a story. Here's what has happened so far:
+    async def generate_stream():
+        try:
+            prompt = f"""You are continuing a story. Here's what has happened so far:
 
 {continuation.story_so_far}
 
@@ -472,61 +483,67 @@ OPTIONS:
 2. [Short option - 5-7 words]
 3. [Short option - 5-7 words]"""
 
-        messages = [
-            ChatMessage(role="user", content=prompt)
-        ]
+            messages = [
+                ChatMessage(role="user", content=prompt)
+            ]
 
-        response = mistral_client.chat(
-            model="mistral-small-latest",
-            messages=messages,
-            temperature=0.8,
-            max_tokens=2000
-        )
-
-        content = response.choices[0].message.content
-        
-        # Parse the response
-        story_text, options = parse_story_response(content)
-        
-        # Update story in database only if user is authenticated
-        if continuation.story_id and user_id:
-            story_data = postgres_storage.load_story(db, continuation.story_id, user_id=user_id)
+            # Stream the response
+            accumulated_content = ""
             
-            if story_data:
-                # Add new segment
-                story_data['segments'].append({
-                    'text': story_text,
-                    'options': options,
-                    'chosen_option': continuation.chosen_option,
-                    'timestamp': datetime.now().isoformat()
-                })
+            for chunk in mistral_client.chat_stream(
+                model="mistral-small-latest",
+                messages=messages,
+                temperature=0.8,
+                max_tokens=2000
+            ):
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        accumulated_content += delta.content
+                        yield f"data: {json.dumps({'type': 'content', 'content': delta.content})}\n\n"
+                        await asyncio.sleep(0)  # Allow other tasks to run
+            
+            # Parse the complete response
+            story_text, options = parse_story_response(accumulated_content)
+            
+            # Update story in database only if user is authenticated
+            if continuation.story_id and user_id:
+                story_data = postgres_storage.load_story(db, continuation.story_id, user_id=user_id)
                 
-                # Save updated story
-                postgres_storage.save_story(db, continuation.story_id, story_data)
-        
-        return StoryResponse(
-            story_text=story_text,
-            options=options,
-            is_complete=False,
-            story_id=continuation.story_id
-        )
+                if story_data:
+                    # Add new segment
+                    story_data['segments'].append({
+                        'text': story_text,
+                        'options': options,
+                        'chosen_option': continuation.chosen_option,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    # Save updated story
+                    postgres_storage.save_story(db, continuation.story_id, story_data)
+            
+            # Send completion with options
+            yield f"data: {json.dumps({'type': 'complete', 'options': options, 'story_id': continuation.story_id})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error continuing story: {str(e)}")
+    return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
-@app.post("/end-story", response_model=StoryResponse)
+@app.post("/end-story")
 async def end_story(
     story_end: StoryEnd, 
     request: Request,
     user_id: Optional[str] = Depends(get_current_user_id_optional), 
     db: Session = Depends(get_db)
 ):
-    """Generate an ending for the story"""
+    """Generate an ending for the story with streaming"""
     # Rate limit AI endpoints
     await rate_limit_ai(request, user_id)
     
-    try:
-        prompt = f"""You are concluding a story. Here's what has happened so far:
+    async def generate_stream():
+        try:
+            prompt = f"""You are concluding a story. Here's what has happened so far:
 
 {story_end.story_so_far}
 
@@ -541,53 +558,59 @@ Format your response as:
 STORY:
 [Your conclusion here - make it detailed, emotional, and complete]"""
 
-        messages = [
-            ChatMessage(role="user", content=prompt)
-        ]
+            messages = [
+                ChatMessage(role="user", content=prompt)
+            ]
 
-        response = mistral_client.chat(
-            model="mistral-small-latest",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2500
-        )
-
-        content = response.choices[0].message.content
-        
-        # Extract just the story part
-        if "STORY:" in content:
-            story_text = content.split("STORY:")[1].strip()
-        else:
-            story_text = content.strip()
-        
-        # Update story in database only if user is authenticated
-        if story_end.story_id and user_id:
-            story_data = postgres_storage.load_story(db, story_end.story_id, user_id=user_id)
+            # Stream the response
+            accumulated_content = ""
             
-            if story_data:
-                # Add final segment
-                story_data['segments'].append({
-                    'text': story_text,
-                    'options': [],
-                    'chosen_option': 'End Story',
-                    'timestamp': datetime.now().isoformat()
-                })
+            stream_response = mistral_client.chat_stream(
+                model="mistral-small-latest",
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2500
+            )
+            
+            for chunk in stream_response:
+                if hasattr(chunk, 'choices') and chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        accumulated_content += delta.content
+                        yield f"data: {json.dumps({'type': 'content', 'content': delta.content})}\n\n"
+            
+            # Extract just the story part
+            if "STORY:" in accumulated_content:
+                story_text = accumulated_content.split("STORY:")[1].strip()
+            else:
+                story_text = accumulated_content.strip()
+            
+            # Update story in database only if user is authenticated
+            if story_end.story_id and user_id:
+                story_data = postgres_storage.load_story(db, story_end.story_id, user_id=user_id)
                 
-                # Mark as complete
-                story_data['is_complete'] = True
-                
-                # Save updated story
-                postgres_storage.save_story(db, story_end.story_id, story_data)
-        
-        return StoryResponse(
-            story_text=story_text,
-            options=[],
-            is_complete=True,
-            story_id=story_end.story_id
-        )
+                if story_data:
+                    # Add final segment
+                    story_data['segments'].append({
+                        'text': story_text,
+                        'options': [],
+                        'chosen_option': 'End Story',
+                        'timestamp': datetime.now().isoformat()
+                    })
+                    
+                    # Mark as complete
+                    story_data['is_complete'] = True
+                    
+                    # Save updated story
+                    postgres_storage.save_story(db, story_end.story_id, story_data)
+            
+            # Send completion
+            yield f"data: {json.dumps({'type': 'complete', 'story_id': story_end.story_id})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error ending story: {str(e)}")
+    return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
 def parse_story_response(content: str) -> tuple[str, List[str]]:
     """Parse the AI response to extract story text and options"""
