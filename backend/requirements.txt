@@ -13,4 +13,4 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 redis>=5.0.0
 slowapi>=0.1.9
-request
+requests>=2.31.0
